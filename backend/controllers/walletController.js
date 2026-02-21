@@ -1,0 +1,243 @@
+// controllers/walletController.js
+const { Op } = require("sequelize");
+const Wallet = require("../models/Wallet");
+const WalletNumber = require("../models/WalletNumber");
+const MobileBanking = require("../models/MobileBanking");
+
+const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
+
+const clampInt = (v, d) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.floor(n) : d;
+};
+
+// GET /api/mobile-banking/:mobileBankingId/wallets?includeNumbers=1
+exports.listWalletsByProvider = async (req, res) => {
+  try {
+    const { mobileBankingId } = req.params;
+    const includeNumbers = String(req.query.includeNumbers || "") === "1";
+
+    const provider = await MobileBanking.findByPk(mobileBankingId);
+    if (!provider) return res.status(404).json({ success: false, message: "Mobile banking not found" });
+
+    const wallets = await Wallet.findAll({
+      where: { mobileBankingId: Number(mobileBankingId) },
+      include: includeNumbers
+        ? [{ model: WalletNumber, as: "numbers", required: false, where: { isActive: true } }]
+        : [],
+      order: [
+        ["sortOrder", "ASC"],
+        ["id", "DESC"],
+      ],
+    });
+
+    return res.json({ success: true, data: { provider, wallets } });
+  } catch (err) {
+    console.error("listWalletsByProvider error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// POST /api/mobile-banking/:mobileBankingId/wallets
+// body: { name, visibility, note, sortOrder, isActive, imgUrl }
+exports.createWallet = async (req, res) => {
+  try {
+    const { mobileBankingId } = req.params;
+    const { name, visibility = "public", note, sortOrder, isActive, imgUrl, ownerUserId: bodyOwnerId } = req.body || {};
+
+    if (!isNonEmpty(name)) {
+      return res.status(400).json({ success: false, message: "Wallet name is required" });
+    }
+
+    const provider = await MobileBanking.findByPk(mobileBankingId);
+    if (!provider) return res.status(404).json({ success: false, message: "Mobile banking not found" });
+
+    if (!["public", "private"].includes(visibility)) {
+      return res.status(400).json({ success: false, message: "visibility must be public/private" });
+    }
+
+    // private wallet হলে logged in user দরকার (আপনার auth middleware থাকলে)
+    let ownerUserId = null;
+    if (visibility === "private") {
+      if (bodyOwnerId) {
+        ownerUserId = bodyOwnerId;
+      } else {
+        const uid = req.user?.id || req.userId;
+        if (!uid) return res.status(401).json({ success: false, message: "Unauthorized for private wallet" });
+        ownerUserId = uid;
+      }
+    }
+
+    // unique per provider check (optional — index থাকলেও human msg দেয়)
+    const exists = await Wallet.findOne({
+      where: {
+        mobileBankingId: Number(mobileBankingId),
+        name: name.trim(),
+      },
+    });
+    if (exists) {
+      return res.status(409).json({ success: false, message: "This wallet name already exists under this provider" });
+    }
+
+    const row = await Wallet.create({
+      mobileBankingId: Number(mobileBankingId),
+      name: name.trim(),
+      imgUrl: imgUrl && String(imgUrl).trim() ? String(imgUrl).trim() : null,
+      visibility,
+      ownerUserId,
+      note: isNonEmpty(note) ? note.trim() : null,
+      sortOrder: Number.isFinite(Number(sortOrder)) ? clampInt(sortOrder, 0) : 0,
+      isActive: typeof isActive === "boolean" ? isActive : true,
+    });
+
+    return res.json({ success: true, data: row });
+  } catch (err) {
+    console.error("createWallet error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// PUT /api/wallets/:walletId
+exports.updateWallet = async (req, res) => {
+  try {
+    const { walletId } = req.params;
+    const { name, visibility, note, sortOrder, isActive } = req.body || {};
+
+    const row = await Wallet.findByPk(walletId);
+    if (!row) return res.status(404).json({ success: false, message: "Wallet not found" });
+
+    if (name !== undefined) {
+      if (!isNonEmpty(name)) return res.status(400).json({ success: false, message: "name cannot be empty" });
+
+      const exists = await Wallet.findOne({
+        where: {
+          mobileBankingId: row.mobileBankingId,
+          name: name.trim(),
+          id: { [Op.ne]: row.id },
+        },
+      });
+      if (exists) return res.status(409).json({ success: false, message: "Wallet name already exists" });
+
+      row.name = name.trim();
+    }
+
+    if (visibility !== undefined) {
+      if (!["public", "private"].includes(visibility)) {
+        return res.status(400).json({ success: false, message: "visibility must be public/private" });
+      }
+
+      if (visibility === "private") {
+        const uid = req.user?.id || req.userId;
+        if (!uid) return res.status(401).json({ success: false, message: "Unauthorized for private wallet" });
+        if (imgUrl !== undefined) {
+         row.imgUrl = isNonEmpty(imgUrl) ? imgUrl.trim() : null;
+        }
+        row.visibility = "private";
+        row.ownerUserId = uid;
+      } else {
+        row.visibility = "public";
+        row.ownerUserId = null;
+        row.imgUrl = null;
+      }
+    }
+
+    if (note !== undefined) row.note = isNonEmpty(note) ? note.trim() : null;
+    if (sortOrder !== undefined) row.sortOrder = clampInt(sortOrder, 0);
+    if (typeof isActive === "boolean") row.isActive = isActive;
+
+    await row.save();
+    return res.json({ success: true, data: row });
+  } catch (err) {
+    console.error("updateWallet error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// DELETE /api/wallets/:walletId
+exports.deleteWallet = async (req, res) => {
+  try {
+    const { walletId } = req.params;
+    const row = await Wallet.findByPk(walletId);
+    if (!row) return res.status(404).json({ success: false, message: "Wallet not found" });
+
+    await row.destroy(); // cascade থাকলে numbers ও delete হবে
+    return res.json({ success: true, message: "Deleted" });
+  } catch (err) {
+    console.error("deleteWallet error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// GET /api/wallets/:walletId/numbers
+exports.listWalletNumbers = async (req, res) => {
+  try {
+    const { walletId } = req.params;
+
+    const wallet = await Wallet.findByPk(walletId);
+    if (!wallet) return res.status(404).json({ success: false, message: "Wallet not found" });
+
+    const numbers = await WalletNumber.findAll({
+      where: { walletId: Number(walletId) },
+      order: [["id", "DESC"]],
+    });
+
+    return res.json({ success: true, data: { wallet, numbers } });
+  } catch (err) {
+    console.error("listWalletNumbers error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// POST /api/wallets/:walletId/numbers
+// body: { number, label, isActive }
+exports.addWalletNumber = async (req, res) => {
+  try {
+    const { walletId } = req.params;
+    const { number, label, isActive } = req.body || {};
+
+    const wallet = await Wallet.findByPk(walletId);
+    if (!wallet) return res.status(404).json({ success: false, message: "Wallet not found" });
+
+    if (!isNonEmpty(number)) {
+      return res.status(400).json({ success: false, message: "number is required" });
+    }
+
+    const numStr = number.trim();
+
+    // unique within same wallet
+    const exists = await WalletNumber.findOne({
+      where: { walletId: Number(walletId), number: numStr },
+    });
+    if (exists) {
+      return res.status(409).json({ success: false, message: "This number already exists in this wallet" });
+    }
+
+    const row = await WalletNumber.create({
+      walletId: Number(walletId),
+      number: numStr,
+      label: isNonEmpty(label) ? label.trim() : null,
+      isActive: typeof isActive === "boolean" ? isActive : true,
+    });
+
+    return res.json({ success: true, data: row });
+  } catch (err) {
+    console.error("addWalletNumber error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// DELETE /api/wallet-numbers/:id
+exports.deleteWalletNumber = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const row = await WalletNumber.findByPk(id);
+    if (!row) return res.status(404).json({ success: false, message: "Number not found" });
+
+    await row.destroy();
+    return res.json({ success: true, message: "Deleted" });
+  } catch (err) {
+    console.error("deleteWalletNumber error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};

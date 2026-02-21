@@ -1,0 +1,743 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Button,
+  Empty,
+  Input,
+  Modal,
+  Pagination,
+  Popconfirm,
+  Select,
+  Spin,
+  Table,
+  Tag,
+  message,
+  Grid,
+  Row,
+  Col,
+  Form,
+  InputNumber,
+  Upload,
+} from "antd";
+import { DeleteOutlined, EditOutlined, UploadOutlined, EyeOutlined } from "@ant-design/icons";
+import ReactQuill from "react-quill-new";
+import "react-quill-new/dist/quill.snow.css";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
+import { useSelector } from "react-redux";
+import { API_BASE_URL } from "../../../config/env";
+import { UPLOAD_BASE_URL } from "../../../config/env";
+
+const API_CATEGORIES = `${API_BASE_URL}/api/categories`;
+const API_ADMIN_PRODUCTS = `${API_BASE_URL}/api/admin/products`;
+const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+
+const { useBreakpoint } = Grid;
+
+const clamp = (n, a, b) => Math.min(Math.max(n, a), b);
+
+const AdminProducts = () => {
+  const screens = useBreakpoint();
+  const isMd = !!screens.md;
+  const token = useSelector((state) => state.auth?.token);
+
+  // categories
+  const [categories, setCategories] = useState([]);
+  const [catLoading, setCatLoading] = useState(false);
+
+  // filters
+  const [catSlug, setCatSlug] = useState(null);
+  const [subSlug, setSubSlug] = useState(null);
+  const [search, setSearch] = useState("");
+
+  // products
+  const [products, setProducts] = useState([]);
+  const [prodLoading, setProdLoading] = useState(false);
+
+  // pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+
+  // sort
+  const [sortBy, setSortBy] = useState("createdAt");
+  const [order, setOrder] = useState("DESC");
+
+  // sold modal
+  const [soldModalOpen, setSoldModalOpen] = useState(false);
+  const [soldModalProduct, setSoldModalProduct] = useState(null);
+
+  // edit modal
+  const [editOpen, setEditOpen] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [existingImages, setExistingImages] = useState([]); // ✅ State for managing existing images
+  const [editForm] = Form.useForm();
+
+  // view modal
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewData, setViewData] = useState(null);
+  const [viewLoading, setViewLoading] = useState(false);
+
+  // 1) load categories
+  useEffect(() => {
+    let ignore = false;
+
+    (async () => {
+      try {
+        setCatLoading(true);
+        const res = await fetch(API_CATEGORIES);
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data?.message || "Failed to load categories");
+        if (!ignore) setCategories(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error(e);
+        if (!ignore) {
+          setCategories([]);
+          message.error(e.message || "Category load failed");
+        }
+      } finally {
+        if (!ignore) setCatLoading(false);
+      }
+    })();
+
+    return () => (ignore = true);
+  }, []);
+
+  const currentCat = useMemo(
+    () => (categories || []).find((c) => c?.slug === catSlug) || null,
+    [categories, catSlug]
+  );
+
+  const subCategories = useMemo(() => {
+    const arr = currentCat?.subCategories || [];
+    return Array.isArray(arr) ? arr.filter((s) => s?.isActive !== false) : [];
+  }, [currentCat]);
+
+  // reset on filter changes
+  useEffect(() => {
+    setSubSlug(null);
+    setPage(1);
+  }, [catSlug]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [subSlug, limit, sortBy, order]);
+
+  const fetchProducts = async () => {
+    setProdLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      params.set("sortBy", sortBy);
+      params.set("order", order);
+
+      if (catSlug) params.set("category", catSlug);
+      if (subSlug) params.set("subCategory", subSlug);
+      if (search.trim()) params.set("search", search.trim());
+
+      const url = `${API_ADMIN_PRODUCTS}?${params.toString()}`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+      });
+      const json = await res.json();
+
+      if (!res.ok) throw new Error(json?.message || "Failed to load products");
+
+      const list = Array.isArray(json?.data) ? json.data : [];
+      const t = Number(json?.meta?.total ?? 0);
+
+      setProducts(list);
+      setTotal(Number.isFinite(t) ? t : 0);
+    } catch (e) {
+      console.error(e);
+      setProducts([]);
+      setTotal(0);
+      message.error(e.message || "Product load failed");
+    } finally {
+      setProdLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catSlug, subSlug, page, limit, sortBy, order, token]);
+
+  const onSearch = () => {
+    setPage(1);
+    fetchProducts();
+  };
+
+  const deleteProduct = async (id) => {
+    try {
+      const res = await fetch(`${API_ADMIN_PRODUCTS}/${id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.message || "Delete failed");
+
+      message.success("Deleted");
+      // যদি last page এ শেষ item delete হয়, page কমিয়ে দেই
+      const nextTotal = Math.max(total - 1, 0);
+      const lastPage = Math.max(Math.ceil(nextTotal / limit), 1);
+      setPage((p) => Math.min(p, lastPage));
+      fetchProducts();
+    } catch (e) {
+      console.error(e);
+      message.error(e.message || "Delete failed");
+    }
+  };
+
+  // --- View Logic ---
+  const openView = async (id) => {
+    setViewOpen(true);
+    setViewData(null);
+    setViewLoading(true);
+    try {
+      const res = await fetch(`${API_ADMIN_PRODUCTS}/${id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await res.json();
+      if (json.data) {
+        setViewData(json.data);
+      }
+    } catch (e) {
+      console.error(e);
+      message.error("Failed to load details");
+    } finally {
+      setViewLoading(false);
+    }
+  };
+
+  // --- Edit Logic ---
+  const openEdit = (product) => {
+    setEditingId(product.id);
+    setEditingProduct(product);
+    setEditOpen(true);
+  };
+
+  // Populate form when modal opens
+  useEffect(() => {
+    if (editOpen && editingProduct) {
+      editForm.resetFields();
+      editForm.setFieldsValue({
+        name: editingProduct.name,
+        price: editingProduct.price,
+        stock: editingProduct.stock,
+        category: editingProduct.category,
+        subCategory: editingProduct.subCategory,
+        description: "",
+        images: [],
+      });
+
+      // ✅ Fix: Initialize images from row data immediately (prevents "No images" flash)
+      let initImgs = editingProduct.images || editingProduct.imageUrl || [];
+      if (typeof initImgs === "string") { try { initImgs = JSON.parse(initImgs); } catch { initImgs = [initImgs]; } }
+      if (!Array.isArray(initImgs)) initImgs = [initImgs].filter(Boolean);
+      setExistingImages(initImgs);
+
+      // Fetch full details (for description)
+      fetch(`${API_ADMIN_PRODUCTS}/${editingProduct.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.data) {
+            editForm.setFieldsValue({
+              description: json.data.description || "",
+              name: json.data.name,
+              price: json.data.price,
+              stock: json.data.stock,
+            });
+
+            // ✅ Handle existing images from fresh data
+            let imgs = json.data.images || json.data.imageUrl || [];
+            if (typeof imgs === "string") try { imgs = JSON.parse(imgs); } catch { imgs = [imgs]; }
+            if (!Array.isArray(imgs)) imgs = [imgs].filter(Boolean);
+            setExistingImages(imgs);
+          }
+        })
+        .catch((e) => console.error("Failed to fetch details", e));
+    }
+  }, [editOpen, editingProduct, editForm, token]);
+
+  const saveEdit = async () => {
+    try {
+      const values = await editForm.validateFields();
+      setEditLoading(true);
+
+      // 1. Upload new images if present (support multiple)
+      let newImageUrls = [];
+      if (values.images && values.images.length > 0) {
+        const uploadPromises = values.images.map((fileItem) => {
+          const fd = new FormData();
+          fd.append("file", fileItem.originFileObj);
+          return fetch(UPLOAD_URL, { method: "POST", body: fd }).then((r) => r.json());
+        });
+
+        const responses = await Promise.all(uploadPromises);
+        // Collect all uploaded URLs
+        newImageUrls = responses.flatMap((r) => r.urls || []).filter(Boolean);
+      }
+
+      // 2. Prepare payload
+      const payload = {
+        name: values.name,
+        price: Number(values.price),
+        stock: Number(values.stock),
+        description: values.description,
+        category: values.category,
+        subCategory: values.subCategory,
+        // ✅ Merge existing (kept) images + new uploaded images
+        images: [...existingImages, ...newImageUrls],
+      };
+
+
+      // 3. Update
+      const res = await fetch(`${API_ADMIN_PRODUCTS}/${editingId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.message || "Update failed");
+
+      message.success("Product updated");
+      setEditOpen(false);
+      fetchProducts();
+    } catch (e) {
+      console.error(e);
+      message.error(e.message || "Update failed");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const columns = [
+    {
+      title: "Img",
+      dataIndex: "images",
+      key: "image",
+      width: 56,
+      render: (images, row) => {
+        const src = normalizeImageUrl(row?.images?.[0] || row?.imageUrl);
+        return (
+          <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", background: "#f5f5f5" }}>
+            <img
+              src={src || "https://via.placeholder.com/80"}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              loading="lazy"
+            />
+          </div>
+        );
+      },
+    },
+    { title: "Name", dataIndex: "name", key: "name", ellipsis: true },
+    {
+      title: "Cat",
+      key: "category",
+      width: isMd ? 240 : 180,
+      render: (_, r) => (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {r.category ? <Tag>{r.category}</Tag> : <Tag>-</Tag>}
+          {r.subCategory ? <Tag color="blue">{r.subCategory}</Tag> : null}
+        </div>
+      ),
+    },
+    {
+      title: "Sold",
+      dataIndex: "soldCount",
+      key: "soldCount",
+      width: 90,
+      render: (v, r) => (
+        <Button
+          size="small"
+          type="text"
+          onClick={() => {
+            setSoldModalProduct(r);
+            setSoldModalOpen(true);
+          }}
+        >
+          <Tag color={Number(v || 0) > 0 ? "green" : "default"} style={{ marginRight: 0 }}>
+            {Number(v || 0)}
+          </Tag>
+        </Button>
+      ),
+      sorter: true,
+    },
+    {
+      title: "Price",
+      dataIndex: "price",
+      key: "price",
+      width: 95,
+      render: (v) => `৳${Number(v || 0).toLocaleString()}`,
+      sorter: true,
+    },
+    {
+      title: "Stock",
+      dataIndex: "stock",
+      key: "stock",
+      width: 80,
+      sorter: true,
+    },
+    {
+      title: "",
+      key: "actions",
+      width: 90,
+      render: (_, r) => (
+        <div style={{ display: "flex", gap: 4 }}>
+        <Button size="small" icon={<EyeOutlined />} onClick={() => openView(r.id)} />
+        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+        
+        <Popconfirm
+          title="Delete this product?"
+          description="This action cannot be undone."
+          okText="Delete"
+          okButtonProps={{ danger: true }}
+          onConfirm={() => deleteProduct(r.id)}
+        >
+          <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+        </Popconfirm>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div style={{ padding: isMd ? 12 : 8 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: isMd ? 18 : 16, fontWeight: 800, margin: 0 }}>Products</h2>
+          <div style={{ color: "#666", marginTop: 2, fontSize: 12 }}>
+            {prodLoading ? "Loading..." : `${total} items`}
+          </div>
+        </div>
+      </div>
+
+      {/* Filters (responsive) */}
+      <div style={{ marginTop: 10 }}>
+        <Row gutter={[8, 8]}>
+          <Col xs={24} sm={12} md={6}>
+            {catLoading ? (
+              <Spin size="small" />
+            ) : (
+              <Select
+                size="small"
+                style={{ width: "100%" }}
+                placeholder="Category"
+                value={catSlug}
+                onChange={(v) => setCatSlug(v || null)}
+                allowClear
+                options={(categories || [])
+                  .filter((c) => c?.isActive !== false)
+                  .map((c) => ({ label: c.name, value: c.slug }))}
+              />
+            )}
+          </Col>
+
+          <Col xs={24} sm={12} md={6}>
+            <Select
+              size="small"
+              style={{ width: "100%" }}
+              placeholder="Subcategory"
+              value={subSlug}
+              onChange={(v) => setSubSlug(v || null)}
+              allowClear
+              disabled={!catSlug || subCategories.length === 0}
+              options={subCategories.map((s) => ({ label: s.name, value: s.slug }))}
+            />
+          </Col>
+
+          <Col xs={24} sm={12} md={7}>
+            <Input
+              size="small"
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onPressEnter={onSearch}
+              allowClear
+            />
+          </Col>
+
+          <Col xs={24} sm={12} md={5}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button size="small" onClick={onSearch}>
+                Search
+              </Button>
+
+              <Select
+                size="small"
+                style={{ flex: 1 }}
+                value={`${sortBy}:${order}`}
+                onChange={(v) => {
+                  const [sb, od] = String(v).split(":");
+                  setSortBy(sb);
+                  setOrder(od);
+                }}
+                options={[
+                  { label: "Newest", value: "createdAt:DESC" },
+                  { label: "Oldest", value: "createdAt:ASC" },
+                  { label: "Sold ↓", value: "soldCount:DESC" },
+                  { label: "Sold ↑", value: "soldCount:ASC" },
+                  { label: "Price ↓", value: "price:DESC" },
+                  { label: "Price ↑", value: "price:ASC" },
+                  { label: "Stock ↓", value: "stock:DESC" },
+                  { label: "Stock ↑", value: "stock:ASC" },
+                ]}
+              />
+            </div>
+          </Col>
+
+          <Col xs={24} sm={12} md={4}>
+            <Select
+              size="small"
+              style={{ width: "100%" }}
+              value={limit}
+              onChange={(v) => setLimit(clamp(Number(v) || 10, 1, 100))}
+              options={[10, 20, 30, 50].map((n) => ({ label: `${n}/page`, value: n }))}
+            />
+          </Col>
+        </Row>
+      </div>
+
+      {/* Table */}
+      <div style={{ marginTop: 10 }}>
+        {prodLoading ? (
+          <div style={{ padding: 18, display: "grid", placeItems: "center" }}>
+            <Spin />
+          </div>
+        ) : products.length === 0 ? (
+          <Empty description="No products found" />
+        ) : (
+          <Table
+            rowKey="id"
+            size="small"
+            columns={columns}
+            dataSource={products}
+            pagination={false}
+            onChange={(pagination, filters, sorter) => {
+              if (sorter?.field && sorter?.order) {
+                setSortBy(sorter.field);
+                setOrder(sorter.order === "ascend" ? "ASC" : "DESC");
+              }
+            }}
+            scroll={isMd ? undefined : { x: 760 }} // ✅ mobile এ table overflow fix
+          />
+        )}
+
+        {total > limit && (
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+            <Pagination
+              size="small"
+              current={page}
+              pageSize={limit}
+              total={total}
+              onChange={(p) => setPage(p)}
+              showSizeChanger={false}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Sold breakdown modal */}
+      <Modal
+        open={soldModalOpen}
+        onCancel={() => setSoldModalOpen(false)}
+        title={soldModalProduct ? `Sold by merchants — ${soldModalProduct.name}` : "Sold by merchants"}
+        footer={null}
+      >
+        {(() => {
+          const arr = soldModalProduct?.soldBy;
+          const list = Array.isArray(arr) ? arr : [];
+          if (!soldModalProduct) return null;
+          if (!list.length) return <Empty description="No merchant sales yet" />;
+
+          return (
+            <div style={{ display: "grid", gap: 8 }}>
+              {list
+                .slice()
+                .sort((a, b) => Number(b?.qty || 0) - Number(a?.qty || 0))
+                .map((x, idx) => (
+                  <div
+                    key={`${x.merchantId}-${idx}`}
+                    style={{
+                      border: "1px solid #eee",
+                      borderRadius: 10,
+                      padding: 10,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>Merchant ID: {x.merchantId}</div>
+                    <Tag color="blue" style={{ marginRight: 0 }}>
+                      Qty: {x.qty}
+                    </Tag>
+                  </div>
+                ))}
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal
+        open={editOpen}
+        title={`Edit Product #${editingId}`}
+        onCancel={() => {
+          setEditOpen(false);
+          setEditingProduct(null);
+        }}
+        onOk={saveEdit}
+        confirmLoading={editLoading}
+        width={800}
+      >
+        <Form layout="vertical" form={editForm}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="category" label="Category">
+                <Select
+                  options={(categories || []).map((c) => ({ label: c.name, value: c.slug }))}
+                  onChange={() => editForm.setFieldValue("subCategory", null)}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="price" label="Price" rules={[{ required: true }]}>
+                <InputNumber style={{ width: "100%" }} min={0} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="stock" label="Stock" rules={[{ required: true }]}>
+                <InputNumber style={{ width: "100%" }} min={0} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="subCategory" label="SubCategory">
+                <Select
+                  options={(() => {
+                    const cSlug = editForm.getFieldValue("category");
+                    const cat = categories.find((c) => c.slug === cSlug);
+                    return (cat?.subCategories || []).map((s) => ({ label: s.name, value: s.slug }));
+                  })()}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* ✅ Existing Images Management */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 500 }}>Current Images:</div>
+            {existingImages.length === 0 ? (
+              <div style={{ color: "#999", fontSize: 12, fontStyle: "italic" }}>No images</div>
+            ) : (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {existingImages.map((url, idx) => (
+                  <div key={idx} style={{ position: "relative", width: 70, height: 70, border: "1px solid #eee", borderRadius: 6 }}>
+                    <img
+                      src={normalizeImageUrl(url)}
+                      alt=""
+                      style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6 }}
+                    />
+                    <Button
+                      size="small"
+                      danger
+                      type="primary"
+                      shape="circle"
+                      icon={<DeleteOutlined />}
+                      style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, minWidth: 20, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}
+                      onClick={() => setExistingImages((prev) => prev.filter((_, i) => i !== idx))}
+                      title="Remove this image"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Form.Item name="images" label="Add New Images" valuePropName="fileList" getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}>
+            <Upload beforeUpload={() => false} multiple listType="picture">
+              <Button icon={<UploadOutlined />}>Select Images</Button>
+            </Upload>
+          </Form.Item>
+
+          <Form.Item name="description" label="Description">
+            <ReactQuill theme="snow" style={{ height: 200, marginBottom: 50 }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* View Description Modal */}
+      <Modal
+        open={viewOpen}
+        title={viewData?.name || "Product Details"}
+        onCancel={() => setViewOpen(false)}
+        footer={null}
+        width={700}
+      >
+        {viewLoading ? (
+          <div style={{ textAlign: "center", padding: 20 }}>
+            <Spin />
+          </div>
+        ) : (
+          <div>
+            {/* Images Gallery */}
+            {(() => {
+              let imgs = viewData?.images || viewData?.imageUrl;
+              if (!imgs) return null;
+              if (typeof imgs === "string") {
+                try {
+                  imgs = imgs.trim().startsWith("[") ? JSON.parse(imgs) : [imgs];
+                } catch {
+                  imgs = [imgs];
+                }
+              }
+              if (!Array.isArray(imgs)) imgs = [imgs];
+              if (imgs.length === 0) return null;
+
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Images</h4>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {imgs.map((img, i) => (
+                      <div key={i} style={{ width: 100, height: 100, border: "1px solid #eee", borderRadius: 8, overflow: "hidden" }}>
+                        <img src={normalizeImageUrl(img)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Description</h4>
+            {viewData?.description ? (
+              <div
+                dangerouslySetInnerHTML={{ __html: viewData.description }}
+                style={{ border: "1px solid #f0f0f0", padding: 12, borderRadius: 8, background: "#fafafa" }}
+              />
+            ) : (
+              <Empty description="No description" />
+            )}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+export default AdminProducts;
+
