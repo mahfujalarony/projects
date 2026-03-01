@@ -17,6 +17,7 @@ exports.getMerchantRequests = async (req, res) => {
   try {
     // query: ?status=pending&page=1&limit=20&q=rony
     const status = (req.query.status || "pending").trim();
+    const suspended = (req.query.suspended || "").trim().toLowerCase();
     const page = clampInt(req.query.page, 1);
     const limit = clampInt(req.query.limit, 20);
     const q = (req.query.q || "").trim().toLowerCase();
@@ -40,7 +41,7 @@ exports.getMerchantRequests = async (req, res) => {
     });
 
     // simple client-side search (name/email) if q provided
-    const filtered = q
+    let filtered = q
       ? rows.filter((m) => {
           const name = (m.user?.name || "").toLowerCase();
           const email = (m.user?.email || "").toLowerCase();
@@ -48,13 +49,29 @@ exports.getMerchantRequests = async (req, res) => {
         })
       : rows;
 
+    const hasSuspendedFilter = suspended === "true" || suspended === "false";
+
+    if (suspended === "true") {
+      filtered = filtered.filter((m) => m.status === "approved" && m.user?.role !== "merchant");
+    } else if (suspended === "false") {
+      filtered = filtered.filter((m) => !(m.status === "approved" && m.user?.role !== "merchant"));
+    }
+
+    const normalized = filtered.map((m) => {
+      const json = m.toJSON ? m.toJSON() : m;
+      return {
+        ...json,
+        isSuspended: json.status === "approved" && json.user?.role !== "merchant",
+      };
+    });
+
     return res.json({
       ok: true,
-      data: filtered,
+      data: normalized,
       page,
       limit,
-      total: q ? filtered.length : count,
-      totalPages: q ? 1 : Math.ceil(count / limit),
+      total: q || hasSuspendedFilter ? normalized.length : count,
+      totalPages: q || hasSuspendedFilter ? 1 : Math.ceil(count / limit),
     });
   } catch (err) {
     console.error("getMerchantRequests error:", err);
@@ -78,6 +95,11 @@ exports.approveMerchant = async (req, res) => {
     }
 
     if (merchant.status === "approved" && merchant.isApproved) {
+      const user = await User.findByPk(merchant.userId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (user && user.role !== "merchant") {
+        user.role = "merchant";
+        await user.save({ transaction: t });
+      }
       await t.commit();
       return res.json({ ok: true, message: "Already approved", data: merchant });
     }
@@ -150,6 +172,115 @@ exports.rejectMerchant = async (req, res) => {
     return res.json({ ok: true, message: "Merchant request rejected & deleted" });
   } catch (err) {
     console.error("rejectMerchant error:", err);
+    await t.rollback();
+    return res.status(500).json({ ok: false, message: err?.message || "Server error" });
+  }
+};
+
+exports.suspendMerchant = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+
+    const merchant = await Merchant.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!merchant) {
+      await t.rollback();
+      return res.status(404).json({ ok: false, message: "Merchant request not found" });
+    }
+
+    if (!(merchant.status === "approved" && merchant.isApproved)) {
+      await t.rollback();
+      return res.status(400).json({ ok: false, message: "Only approved merchant can be suspended" });
+    }
+
+    const user = await User.findByPk(merchant.userId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ ok: false, message: "User not found" });
+    }
+
+    if (user.role !== "merchant") {
+      await t.commit();
+      return res.json({ ok: true, message: "Merchant already suspended", data: merchant });
+    }
+
+    user.role = "user";
+    await user.save({ transaction: t });
+
+    await Notification.create(
+      {
+        userId: merchant.userId,
+        type: "system",
+        title: "Merchant account suspended",
+        message:
+          "Your merchant account has been suspended. To request reactivation and recover your previous data, please contact support.",
+        meta: { merchantRequestId: merchant.id, status: "suspended", route: "/merchant" },
+      },
+      { transaction: t }
+    );
+
+    await t.commit();
+    return res.json({ ok: true, message: "Merchant suspended successfully", data: merchant });
+  } catch (err) {
+    console.error("suspendMerchant error:", err);
+    await t.rollback();
+    return res.status(500).json({ ok: false, message: err?.message || "Server error" });
+  }
+};
+
+exports.resumeMerchant = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+
+    const merchant = await Merchant.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!merchant) {
+      await t.rollback();
+      return res.status(404).json({ ok: false, message: "Merchant request not found" });
+    }
+
+    if (!(merchant.status === "approved" && merchant.isApproved)) {
+      await t.rollback();
+      return res.status(400).json({ ok: false, message: "Only approved merchant can be resumed" });
+    }
+
+    const user = await User.findByPk(merchant.userId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ ok: false, message: "User not found" });
+    }
+
+    if (user.role === "merchant") {
+      await t.commit();
+      return res.json({ ok: true, message: "Merchant already active", data: merchant });
+    }
+
+    user.role = "merchant";
+    await user.save({ transaction: t });
+
+    await Notification.create(
+      {
+        userId: merchant.userId,
+        type: "system",
+        title: "Merchant account reactivated",
+        message: "Your merchant access has been restored. You can now continue with your previous data.",
+        meta: { merchantRequestId: merchant.id, status: "approved", route: "/merchant" },
+      },
+      { transaction: t }
+    );
+
+    await t.commit();
+    return res.json({ ok: true, message: "Merchant resumed successfully", data: merchant });
+  } catch (err) {
+    console.error("resumeMerchant error:", err);
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }
@@ -257,59 +388,94 @@ exports.getAdminStats = async (req, res) => {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
-    const [
-      users,
-      products,
-      orders,
-      merchants,
-      approvedMerchants,
-      pendingMerchantRequests,
-      pendingTopups,
-      activeOffers,
-      usersBalanceRaw,
-      merchantBalanceRaw,
-      adminBalanceRaw,
-      lowStockProducts,
-      outOfStockProducts,
-      todayOrders,
-      todayUsers,
-      todayOrderStatusRows,
-      allOrderStatusRows,
-      todayTopupApprovedRaw,
-    ] = await Promise.all([
-      User.count(),
-      Product.count(),
-      OrderItem.count(),
-      Merchant.count(),
-      Merchant.count({ where: { status: "approved" } }),
-      Merchant.count({ where: { status: "pending" } }),
-      BalanceTopupRequest.count({ where: { status: "pending" } }),
-      Offer.count({ where: { isActive: true } }),
-      User.sum("balance", { where: { role: "user" } }),
-      User.sum("balance", { where: { role: "merchant" } }),
-      User.sum("balance", { where: { role: "admin" } }),
-      Product.count({ where: { stock: { [Op.between]: [1, 5] } } }),
-      Product.count({ where: { stock: 0 } }),
-      OrderItem.count({ where: { createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart } } }),
-      User.count({ where: { createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart } } }),
-      OrderItem.findAll({
-        where: { createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart } },
-        attributes: ["status", [sequelize.fn("COUNT", sequelize.col("id")), "count"]],
-        group: ["status"],
-        raw: true,
-      }),
-      OrderItem.findAll({
-        attributes: ["status", [sequelize.fn("COUNT", sequelize.col("id")), "count"]],
-        group: ["status"],
-        raw: true,
-      }),
-      BalanceTopupRequest.sum("amount", {
-        where: {
-          status: "approved",
-          createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
-        },
-      }),
-    ]);
+    const safe = async (label, fnCall, fallback) => {
+      try {
+        return await fnCall();
+      } catch (error) {
+        console.error(`getAdminStats:${label} failed`, error?.message || error);
+        return fallback;
+      }
+    };
+
+    const users = await safe("users_count", () => User.count(), 0);
+    const products = await safe("products_count", () => Product.count(), 0);
+    const orders = await safe("orders_count", () => OrderItem.count(), 0);
+    const merchants = await safe("merchants_count", () => Merchant.count(), 0);
+    const approvedMerchants = await safe(
+      "merchants_approved_count",
+      () => Merchant.count({ where: { status: "approved" } }),
+      0
+    );
+    const pendingMerchantRequests = await safe(
+      "merchants_pending_count",
+      () => Merchant.count({ where: { status: "pending" } }),
+      0
+    );
+    const pendingTopups = await safe(
+      "topups_pending_count",
+      () => BalanceTopupRequest.count({ where: { status: "pending" } }),
+      0
+    );
+    const activeOffers = await safe(
+      "offers_active_count",
+      () => Offer.count({ where: { isActive: true } }),
+      0
+    );
+    const usersBalanceRaw = await safe("balance_users_sum", () => User.sum("balance", { where: { role: "user" } }), 0);
+    const merchantBalanceRaw = await safe(
+      "balance_merchants_sum",
+      () => User.sum("balance", { where: { role: "merchant" } }),
+      0
+    );
+    const adminBalanceRaw = await safe("balance_admin_sum", () => User.sum("balance", { where: { role: "admin" } }), 0);
+    const lowStockProducts = await safe(
+      "products_low_stock_count",
+      () => Product.count({ where: { stock: { [Op.between]: [1, 5] } } }),
+      0
+    );
+    const outOfStockProducts = await safe("products_out_stock_count", () => Product.count({ where: { stock: 0 } }), 0);
+    const todayOrders = await safe(
+      "orders_today_count",
+      () => OrderItem.count({ where: { createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart } } }),
+      0
+    );
+    const todayUsers = await safe(
+      "users_today_count",
+      () => User.count({ where: { createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart } } }),
+      0
+    );
+    const todayOrderStatusRows = await safe(
+      "orders_today_by_status",
+      () =>
+        OrderItem.findAll({
+          where: { createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart } },
+          attributes: ["status", [sequelize.fn("COUNT", sequelize.col("id")), "count"]],
+          group: ["status"],
+          raw: true,
+        }),
+      []
+    );
+    const allOrderStatusRows = await safe(
+      "orders_all_by_status",
+      () =>
+        OrderItem.findAll({
+          attributes: ["status", [sequelize.fn("COUNT", sequelize.col("id")), "count"]],
+          group: ["status"],
+          raw: true,
+        }),
+      []
+    );
+    const todayTopupApprovedRaw = await safe(
+      "topups_today_approved_sum",
+      () =>
+        BalanceTopupRequest.sum("amount", {
+          where: {
+            status: "approved",
+            createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
+          },
+        }),
+      0
+    );
 
     let revenue = 0;
     if (includeRevenue) {
@@ -322,14 +488,23 @@ exports.getAdminStats = async (req, res) => {
       revenue = Number(revenueData[0]?.total || 0);
     }
 
-    const [todaySalesRow] = await OrderItem.findAll({
-      where: {
-        createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
-        status: { [Op.ne]: "cancelled" },
+    const todaySalesValue = await safe(
+      "orders_today_sales_sum",
+      async () => {
+        const rows = await OrderItem.findAll({
+          where: {
+            createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
+            status: { [Op.ne]: "cancelled" },
+          },
+          attributes: [
+            [sequelize.fn("SUM", sequelize.literal("(price * quantity) + deliveryCharge")), "total"],
+          ],
+          raw: true,
+        });
+        return Number(rows?.[0]?.total || 0);
       },
-      attributes: [[sequelize.fn("SUM", sequelize.literal("(price * quantity) + deliveryCharge")), "total"]],
-      raw: true,
-    });
+      0
+    );
 
     const toStatusMap = (rows = []) =>
       rows.reduce((acc, row) => {
@@ -363,7 +538,7 @@ exports.getAdminStats = async (req, res) => {
         },
         today: {
           orders: Number(todayOrders || 0),
-          sales: Number(todaySalesRow?.total || 0),
+          sales: Number(todaySalesValue || 0),
           newUsers: Number(todayUsers || 0),
           approvedTopupAmount: Number(todayTopupApprovedRaw || 0),
           byStatus: {
@@ -495,12 +670,18 @@ exports.deleteAdminProduct = async (req, res) => {
 
 
 const VALID = new Set([
-  "create_",
+  "create_products",
+  "edit_products",
   "manage_order",
   "manage_offer",
   "manage_catagory",
   "manage_catagoy",
+  "manage_merchant",
+  "manage_media_cleanup",
   "manage_users",
+  "manage_support_chat",
+  "manage_balance_topup",
+  "manage_wallet",
 ]);
 
 exports.setSubAdminPermissions = async (req, res) => {

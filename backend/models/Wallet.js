@@ -60,16 +60,5 @@ const Wallet = sequelize.define(
 );
 
 
-const WalletNumber = require("./WalletNumber");
-
-// Ensure Wallet -> WalletNumber association exists even without central model loader
-if (!Wallet.associations.numbers) {
-  Wallet.hasMany(WalletNumber, {
-    as: "numbers",
-    foreignKey: "walletId",
-    onDelete: "CASCADE",
-    onUpdate: "CASCADE",
-  });
-}
 module.exports = Wallet;
 

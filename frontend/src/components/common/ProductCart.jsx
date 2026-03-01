@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 
-const ProductCard = ({ product, onAddToCart }) => {
+const ProductCard = ({ product, onAddToCart, onProductClick }) => {
   const [qty, setQty] = useState(1);
 
   const handleQtyChange = (e) => {
@@ -9,9 +9,13 @@ const ProductCard = ({ product, onAddToCart }) => {
     setQty(value > 0 ? value : 1);
   };
 
+  const handleOpenProduct = () => {
+    if (typeof onProductClick === "function") onProductClick(product);
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-300 flex flex-col border border-gray-100 overflow-hidden group">
-      <Link to={`/products/${product.id}`} className="block">
+      <Link to={`/products/${product.id}`} className="block" onClick={handleOpenProduct}>
         <div className="h-28 md:h-32 w-full bg-gray-50 relative overflow-hidden">
           <img
             src={product.images?.[0] || "https://via.placeholder.com/150"}
@@ -26,7 +30,18 @@ const ProductCard = ({ product, onAddToCart }) => {
           {product.category || "General"}
         </p>
 
-        <Link to={`/products/${product.id}`} className="block">
+        <p
+          className="text-[10px] text-sky-700 font-medium mb-1 truncate"
+          title={product.merchant?.name || (product.merchantId ? `Seller #${product.merchantId}` : "")}
+        >
+          {product.merchant?.name
+            ? `Seller: ${product.merchant.name}`
+            : product.merchantId
+              ? `Seller #${product.merchantId}`
+              : ""}
+        </p>
+
+        <Link to={`/products/${product.id}`} className="block" onClick={handleOpenProduct}>
           <h3
             className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight mb-1 h-8 hover:text-blue-600 transition-colors"
             title={product.name}

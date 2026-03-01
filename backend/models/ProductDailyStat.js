@@ -1,6 +1,5 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const MerchentStore = require("./MerchentStore");
 
 const ProductDailyStat = sequelize.define(
   "ProductDailyStat",
@@ -28,8 +27,5 @@ const ProductDailyStat = sequelize.define(
     ],
   }
 );
-
-ProductDailyStat.belongsTo(MerchentStore, { foreignKey: "productId", as: "product" });
-MerchentStore.hasMany(ProductDailyStat, { foreignKey: "productId", as: "stats" });
 
 module.exports = ProductDailyStat;

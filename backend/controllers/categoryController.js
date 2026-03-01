@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const Category = require("../models/Category");
 const SubCategory = require("../models/SubCategory");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
 
 const slugify = (s = "") =>
   s.toString().trim().toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-");
@@ -20,6 +21,48 @@ async function makeUniqueSlug(baseSlug, excludeId = null) {
     slug = `${baseSlug}-${n++}`;
   }
 }
+
+const buildSubCategoryTree = (list = [], parentPath = "") => {
+  const byId = new Map(list.map((x) => [Number(x.id), { ...x, children: [] }]));
+  const roots = [];
+
+  for (const node of byId.values()) {
+    const pid = Number(node.parentSubCategoryId || 0);
+    if (pid && byId.has(pid)) byId.get(pid).children.push(node);
+    else roots.push(node);
+  }
+
+  const decorate = (node, depth = 1, pathPrefix = "") => {
+    const currentSlug = String(node.slug || "").trim();
+    const nextPath = pathPrefix ? `${pathPrefix}/${currentSlug}` : currentSlug;
+    const children = Array.isArray(node.children) ? node.children : [];
+    const decoratedChildren = children.map((child) => decorate(child, depth + 1, nextPath));
+
+    return {
+      ...node,
+      depth,
+      path: nextPath,
+      urlPath: parentPath ? `/${parentPath}/${nextPath}` : `/${nextPath}`,
+      hasChildren: decoratedChildren.length > 0,
+      childrenCount: decoratedChildren.length,
+      children: decoratedChildren,
+    };
+  };
+
+  return roots.map((root) => decorate(root, 1, ""));
+};
+
+const flattenTree = (nodes = []) => {
+  const out = [];
+  const walk = (arr) => {
+    for (const node of arr) {
+      out.push(node);
+      if (Array.isArray(node.children) && node.children.length) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return out;
+};
 
 exports.createCategory = async (req, res) => {
   try {
@@ -46,7 +89,7 @@ exports.createCategory = async (req, res) => {
 
 exports.getCategories = async (req, res) => {
   try {
-    const { q = "", active = "" } = req.query;
+    const { q = "", active = "", format = "legacy" } = req.query;
 
     const where = {};
     if (q) where.name = { [Op.like]: `%${q}%` };
@@ -56,10 +99,53 @@ exports.getCategories = async (req, res) => {
     const rows = await Category.findAll({
       where,
       order: [["createdAt", "DESC"]],
-      include: [{ model: SubCategory, as: "subCategories", required: false }],
+      raw: true,
     });
 
-    return res.json(rows);
+    const categoryIds = rows.map((r) => Number(r.id)).filter(Boolean);
+    const subs = categoryIds.length
+      ? await SubCategory.findAll({
+          where: { categoryId: { [Op.in]: categoryIds } },
+          order: [["createdAt", "DESC"]],
+          raw: true,
+        })
+      : [];
+
+    const byCategory = new Map();
+    for (const s of subs) {
+      const cid = Number(s.categoryId);
+      if (!byCategory.has(cid)) byCategory.set(cid, []);
+      byCategory.get(cid).push({ ...s, children: [] });
+    }
+
+    const out = rows.map((cat) => ({
+      ...cat,
+      depth: 0,
+      path: String(cat.slug || ""),
+      urlPath: `/${String(cat.slug || "")}`,
+      hasChildren: (byCategory.get(Number(cat.id)) || []).length > 0,
+      subCategories: buildSubCategoryTree(byCategory.get(Number(cat.id)) || [], String(cat.slug || "")),
+    }));
+
+    if (String(format).toLowerCase() === "ecom") {
+      const totalSubCategories = out.reduce(
+        (acc, cat) => acc + flattenTree(cat.subCategories || []).length,
+        0
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          categories: out,
+          summary: {
+            totalCategories: out.length,
+            totalSubCategories,
+          },
+        },
+      });
+    }
+
+    return res.json(out);
   } catch (err) {
     console.error("getCategories error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -96,10 +182,27 @@ exports.deleteCategory = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    const cat = await Category.findByPk(id);
+    const cat = await Category.findByPk(id, {
+      include: [{ model: SubCategory, as: "subCategories", attributes: ["id", "imageUrl"], required: false }],
+    });
     if (!cat) return res.status(404).json({ message: "Category not found" });
 
+    const imagePaths = [
+      cat.imageUrl,
+      cat.icon,
+      ...((Array.isArray(cat.subCategories) ? cat.subCategories : []).map((s) => s.imageUrl)),
+    ].filter(Boolean);
+
     await cat.destroy();
+
+    for (const p of imagePaths) {
+      try {
+        await deleteUploadFileIfSafe(p);
+      } catch (e) {
+        console.error("deleteCategory image cleanup error:", e);
+      }
+    }
+
     return res.json({ message: "Category deleted" });
   } catch (err) {
     console.error("deleteCategory error:", err);

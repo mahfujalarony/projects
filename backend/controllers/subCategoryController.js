@@ -1,9 +1,16 @@
 const { Op } = require("sequelize");
 const Category = require("../models/Category");
 const SubCategory = require("../models/SubCategory");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
 
 const slugify = (s = "") =>
-  s.toString().trim().toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-");
+  s
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
 
 async function makeUniqueSlug(baseSlug, categoryId, excludeId = null) {
   let slug = baseSlug;
@@ -21,21 +28,72 @@ async function makeUniqueSlug(baseSlug, categoryId, excludeId = null) {
   }
 }
 
+const toTree = (rows = []) => {
+  const plain = rows.map((r) => (typeof r?.toJSON === "function" ? r.toJSON() : r));
+  const byId = new Map();
+  const roots = [];
+
+  for (const row of plain) byId.set(Number(row.id), { ...row, children: [] });
+
+  for (const row of plain) {
+    const node = byId.get(Number(row.id));
+    const pid = Number(row.parentSubCategoryId || 0);
+    if (pid && byId.has(pid)) byId.get(pid).children.push(node);
+    else roots.push(node);
+  }
+
+  return roots;
+};
+
+async function getDescendantIds(startId) {
+  const ids = [];
+  const q = [Number(startId)];
+  while (q.length) {
+    const current = q.shift();
+    const children = await SubCategory.findAll({
+      where: { parentSubCategoryId: current },
+      attributes: ["id"],
+      raw: true,
+    });
+    for (const child of children) {
+      const cid = Number(child.id);
+      ids.push(cid);
+      q.push(cid);
+    }
+  }
+  return ids;
+}
+
 exports.createSubCategory = async (req, res) => {
   try {
-    const { categoryId, name, imageUrl, isActive } = req.body;
+    let { categoryId, parentSubCategoryId, name, imageUrl, isActive } = req.body;
 
-    if (!categoryId) return res.status(400).json({ message: "categoryId is required" });
     if (!name || !name.trim()) return res.status(400).json({ message: "Subcategory name is required" });
 
-    const cat = await Category.findByPk(Number(categoryId));
+    const parentId = parentSubCategoryId ? Number(parentSubCategoryId) : null;
+    const directCategoryId = categoryId ? Number(categoryId) : null;
+
+    if (!parentId && !directCategoryId) {
+      return res.status(400).json({ message: "categoryId or parentSubCategoryId is required" });
+    }
+
+    let resolvedCategoryId = directCategoryId;
+
+    if (parentId) {
+      const parent = await SubCategory.findByPk(parentId);
+      if (!parent) return res.status(404).json({ message: "Parent subcategory not found" });
+      resolvedCategoryId = Number(parent.categoryId);
+    }
+
+    const cat = await Category.findByPk(Number(resolvedCategoryId));
     if (!cat) return res.status(404).json({ message: "Category not found" });
 
     const baseSlug = slugify(name);
-    const slug = await makeUniqueSlug(baseSlug, Number(categoryId));
+    const slug = await makeUniqueSlug(baseSlug, Number(resolvedCategoryId));
 
     const created = await SubCategory.create({
-      categoryId: Number(categoryId),
+      categoryId: Number(resolvedCategoryId),
+      parentSubCategoryId: parentId || null,
       name: name.trim(),
       slug,
       imageUrl: imageUrl || null,
@@ -51,10 +109,11 @@ exports.createSubCategory = async (req, res) => {
 
 exports.getSubCategories = async (req, res) => {
   try {
-    const { categoryId = "", q = "", active = "" } = req.query;
+    const { categoryId = "", q = "", active = "", parentSubCategoryId = "", tree = "false" } = req.query;
 
     const where = {};
     if (categoryId) where.categoryId = Number(categoryId);
+    if (parentSubCategoryId) where.parentSubCategoryId = Number(parentSubCategoryId);
     if (q) where.name = { [Op.like]: `%${q}%` };
     if (active === "true") where.isActive = true;
     if (active === "false") where.isActive = false;
@@ -63,6 +122,10 @@ exports.getSubCategories = async (req, res) => {
       where,
       order: [["createdAt", "DESC"]],
     });
+
+    if (String(tree).toLowerCase() === "true") {
+      return res.json(toTree(rows));
+    }
 
     return res.json(rows);
   } catch (err) {
@@ -74,10 +137,30 @@ exports.getSubCategories = async (req, res) => {
 exports.updateSubCategory = async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { name, imageUrl, isActive } = req.body;
+    const { name, imageUrl, isActive, parentSubCategoryId } = req.body;
 
     const sub = await SubCategory.findByPk(id);
     if (!sub) return res.status(404).json({ message: "Subcategory not found" });
+
+    if (typeof parentSubCategoryId !== "undefined") {
+      const nextParentId = parentSubCategoryId ? Number(parentSubCategoryId) : null;
+      if (nextParentId === id) return res.status(400).json({ message: "Subcategory cannot be its own parent" });
+
+      if (nextParentId) {
+        const parent = await SubCategory.findByPk(nextParentId);
+        if (!parent) return res.status(404).json({ message: "Parent subcategory not found" });
+        if (Number(parent.categoryId) !== Number(sub.categoryId)) {
+          return res.status(400).json({ message: "Parent must belong to same category" });
+        }
+
+        const descendants = await getDescendantIds(id);
+        if (descendants.includes(nextParentId)) {
+          return res.status(400).json({ message: "Invalid parent relation (cycle detected)" });
+        }
+      }
+
+      sub.parentSubCategoryId = nextParentId;
+    }
 
     if (typeof name === "string" && name.trim() && name.trim() !== sub.name) {
       const baseSlug = slugify(name);
@@ -100,12 +183,28 @@ exports.updateSubCategory = async (req, res) => {
 exports.deleteSubCategory = async (req, res) => {
   try {
     const id = Number(req.params.id);
-
     const sub = await SubCategory.findByPk(id);
     if (!sub) return res.status(404).json({ message: "Subcategory not found" });
 
-    await sub.destroy();
-    return res.json({ message: "Subcategory deleted" });
+    const descendants = await getDescendantIds(id);
+    const idsToDelete = [id, ...descendants];
+    const rows = await SubCategory.findAll({
+      where: { id: idsToDelete },
+      attributes: ["id", "imageUrl"],
+      raw: true,
+    });
+
+    await SubCategory.destroy({ where: { id: idsToDelete } });
+
+    for (const row of rows) {
+      try {
+        await deleteUploadFileIfSafe(row.imageUrl);
+      } catch (e) {
+        console.error("deleteSubCategory image cleanup error:", e);
+      }
+    }
+
+    return res.json({ message: "Subcategory deleted", deletedCount: idsToDelete.length });
   } catch (err) {
     console.error("deleteSubCategory error:", err);
     return res.status(500).json({ message: "Server error" });

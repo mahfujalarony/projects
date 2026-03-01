@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, Descriptions, Tag, Typography, Button, message } from "antd";
+import { Card, Descriptions, Tag, Typography, Button, message, Space, Divider } from "antd";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "../../../config/env";
+import { API_BASE_URL, CHAT_BASE_URL } from "../../../config/env";
 
 const { Title, Text } = Typography;
 const API_BASE = API_BASE_URL;
+const CHAT_BASE = CHAT_BASE_URL;
 
 const statusColor = (s) => {
   if (s === "approved") return "green";
@@ -19,6 +20,8 @@ export default function MerchantProfile() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [merchant, setMerchant] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [supportContact, setSupportContact] = useState({ email: "", whatsapp: "" });
 
   const token = useMemo(() => {
     if (reduxToken) return reduxToken;
@@ -30,6 +33,40 @@ export default function MerchantProfile() {
     }
   }, [reduxToken]);
 
+  const openSupportChat = async () => {
+    if (!token) {
+      message.error("Please log in first.");
+      navigate("/login");
+      return;
+    }
+    try {
+      const res = await fetch(`${CHAT_BASE}/api/chat/conversations/open`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      const conversationId = data?.conversation?.id;
+      if (!res.ok || !data?.success || !conversationId) {
+        throw new Error(data?.message || "Unable to open support chat");
+      }
+      navigate(`/chats/${conversationId}`);
+    } catch (e) {
+      message.error(e?.message || "Unable to open support chat");
+    }
+  };
+
+  const toWhatsappHref = (v) => {
+    const raw = String(v || "").trim();
+    if (!raw) return "";
+    const digits = raw.replace(/[^\d]/g, "");
+    if (!digits) return "";
+    return `https://wa.me/${digits}`;
+  };
+
   useEffect(() => {
     if (!token) {
       setLoading(false);
@@ -39,14 +76,38 @@ export default function MerchantProfile() {
     const load = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/merchant/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json().catch(() => null);
-        if (!res.ok || !data?.success) {
-          throw new Error(data?.message || "Failed to load merchant profile");
+        const [merchantRes, balanceRes, settingsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/merchant/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/api/merchant/me/balance`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/api/settings`),
+        ]);
+
+        const merchantData = await merchantRes.json().catch(() => null);
+        if (!merchantRes.ok || !merchantData?.success) {
+          throw new Error(merchantData?.message || "Failed to load merchant profile");
         }
-        setMerchant(data?.data?.merchant || null);
+        setMerchant(merchantData?.data?.merchant || null);
+
+        const balanceData = await balanceRes.json().catch(() => ({}));
+        if (balanceRes.ok) {
+          setBalance(Number(balanceData?.data?.balance || 0));
+        } else {
+          setBalance(0);
+        }
+
+        const settingsData = await settingsRes.json().catch(() => ({}));
+        if (settingsRes.ok && settingsData?.success) {
+          setSupportContact({
+            email: String(settingsData?.data?.supportEmail || "").trim(),
+            whatsapp: String(settingsData?.data?.supportWhatsapp || "").trim(),
+          });
+        } else {
+          setSupportContact({ email: "", whatsapp: "" });
+        }
       } catch (e) {
         message.error(e?.message || "Failed to load merchant profile");
         setMerchant(null);
@@ -97,6 +158,45 @@ export default function MerchantProfile() {
           {Number(merchant.averageRating || 0).toFixed(2)} ({Number(merchant.totalReviews || 0)} reviews)
         </Descriptions.Item>
       </Descriptions>
+
+      <Divider />
+
+      <Card
+        type="inner"
+        title="Balance Withdraw"
+        style={{ borderRadius: 12, background: "#fafafa" }}
+      >
+        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Text>
+            Current Balance: <Text strong>BDT {Number(balance || 0).toLocaleString()}</Text>
+          </Text>
+          <Text type="secondary">
+            Withdraw request করতে Support Chat এ যোগাযোগ করুন, অথবা admin settings এ set করা WhatsApp/Email ব্যবহার করুন।
+          </Text>
+
+          <Space wrap>
+            <Button type="primary" onClick={openSupportChat}>
+              Open Support Chat
+            </Button>
+            {supportContact.whatsapp ? (
+              <Button href={toWhatsappHref(supportContact.whatsapp)} target="_blank" rel="noreferrer">
+                WhatsApp: {supportContact.whatsapp}
+              </Button>
+            ) : null}
+            {supportContact.email ? (
+              <Button href={`mailto:${supportContact.email}`}>
+                Email: {supportContact.email}
+              </Button>
+            ) : null}
+          </Space>
+
+          {!supportContact.whatsapp && !supportContact.email ? (
+            <Text type="warning">
+              WhatsApp/Email contact এখনও set করা নেই. আপাতত Support Chat ব্যবহার করুন।
+            </Text>
+          ) : null}
+        </Space>
+      </Card>
     </Card>
   );
 }

@@ -11,6 +11,8 @@ const ALLOWED_SUBADMIN_PERMISSIONS = new Set([
   "manage_offer",
   "manage_catagory",
   "manage_catagoy",
+  "manage_merchant",
+  "manage_media_cleanup",
   "manage_users",
   "manage_support_chat",
   "manage_balance_topup",
@@ -43,7 +45,17 @@ exports.adminGetUsers = async (req, res) => {
 
     const { count, rows } = await User.findAndCountAll({
       where,
-      attributes: ["id", "name", "email", "role", "balance", "imageUrl", "createdAt", "updatedAt"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "role",
+        "balance",
+        "imageUrl",
+        "topupBlockedUntil",
+        "createdAt",
+        "updatedAt",
+      ],
       order: [["createdAt", sort]],
       limit,
       offset,
@@ -70,7 +82,17 @@ exports.adminGetUserById = async (req, res) => {
     }
 
     const user = await User.findByPk(id, {
-      attributes: ["id", "name", "email", "role", "balance", "imageUrl", "createdAt", "updatedAt"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "role",
+        "balance",
+        "imageUrl",
+        "topupBlockedUntil",
+        "createdAt",
+        "updatedAt",
+      ],
     });
 
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
@@ -154,6 +176,7 @@ exports.adminUpdateUser = async (req, res) => {
         role: user.role,
         balance: user.balance,
         imageUrl: user.imageUrl,
+        topupBlockedUntil: user.topupBlockedUntil,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },

@@ -12,6 +12,7 @@ const User = sequelize.define(
     balance: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     password: { type: DataTypes.STRING, allowNull: false },
     imageUrl: { type: DataTypes.STRING, allowNull: true },
+    topupBlockedUntil: { type: DataTypes.DATE, allowNull: true },
     role: {
       type: DataTypes.ENUM("admin", "merchant", "user", "subadmin"),
       allowNull: false,
@@ -24,11 +25,5 @@ const User = sequelize.define(
 User.prototype.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword, this.password);
 };
-
-try {
-  const MerchantProfile = require("./MerchantProfile");
-  User.hasOne(MerchantProfile, { foreignKey: "userId", as: "merchantProfile" });
-  MerchantProfile.belongsTo(User, { foreignKey: "userId", as: "user" });
-} catch (e) {}
 
 module.exports = User;

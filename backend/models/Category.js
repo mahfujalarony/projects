@@ -1,6 +1,5 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const SubCategory = require("./SubCategory");
 
 const Category = sequelize.define(
   "Category",
@@ -14,16 +13,5 @@ const Category = sequelize.define(
   },
   { tableName: "Categories", timestamps: true }
 );
-
-Category.hasMany(SubCategory, {
-  foreignKey: "categoryId",
-  as: "subCategories",
-  onDelete: "CASCADE",
-});
-
-SubCategory.belongsTo(Category, {
-  foreignKey: "categoryId",
-  as: "category",
-});
 
 module.exports = Category;

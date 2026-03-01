@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { InputNumber, Rate, Button, message, Alert } from "antd";
-import { ShoppingCartOutlined } from "@ant-design/icons";
+import { InputNumber, Rate, Button, message, Alert, Modal, Drawer, Grid, Carousel } from "antd";
+import { ShoppingCartOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import Footer from "./../../components/common/Footer";
 import { useDispatch } from "react-redux";
@@ -10,13 +10,13 @@ import ProductCard from "../../components/common/ProductCart";
 import Story from "../../components/ui/Story";
 import { API_BASE_URL } from "../../config/env";
 import { MoveRight } from "lucide-react";
+import { normalizeImageUrl } from "../../utils/imageUrl";
+const { useBreakpoint } = Grid;
+const HOME_CACHE_TTL = 1000 * 60 * 15;
 
 
 const getFullImageUrl = (imgPath) => {
-  if (!imgPath) return "/placeholder-product.jpg";
-  const cleanPath = String(imgPath).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (cleanPath.startsWith("http")) return cleanPath;
-  return `${API_BASE_URL}/${cleanPath}`;
+  return normalizeImageUrl(imgPath) || "/placeholder-product.jpg";
 };
 
 const ProductSkeleton = ({ className = "", imgClass = "h-40" }) => (
@@ -33,18 +33,119 @@ const ProductSkeleton = ({ className = "", imgClass = "h-40" }) => (
   </div>
 );
 
-const fetchJson = async (url, fallbackMessage) => {
-  const res = await fetch(url);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.message || fallbackMessage || "Request failed");
-  }
-  return data;
+const FlashSaleCardImage = ({ src, alt }) => {
+  const [loaded, setLoaded] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
+
+  return (
+    <div className="h-40 w-full bg-gray-50 relative overflow-hidden">
+      {!loaded && !failed ? (
+        <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100" />
+      ) : null}
+
+      {failed ? (
+        <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-400 text-xs font-medium">
+          Image unavailable
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            setFailed(true);
+            setLoaded(false);
+          }}
+          className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ${
+            loaded ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      )}
+    </div>
+  );
 };
+
+const fetchJson = async (url, fallbackMessage) => {
+  try {
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error("[HomeContent] fetchJson failed", {
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        response: data,
+      });
+      throw new Error(data?.message || fallbackMessage || "Request failed");
+    }
+    return data;
+  } catch (error) {
+    console.error("[HomeContent] fetchJson error", {
+      url,
+      message: error?.message,
+      error,
+    });
+    throw error;
+  }
+};
+
+const readHomeCache = (key) => {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts || !Array.isArray(parsed?.data)) return null;
+    if (Date.now() - Number(parsed.ts) > HOME_CACHE_TTL) return null;
+    return { ts: Number(parsed.ts), data: parsed.data };
+  } catch {
+    return null;
+  }
+};
+
+const writeHomeCache = (key, data) => {
+  try {
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        ts: Date.now(),
+        data: Array.isArray(data) ? data : [],
+      })
+    );
+  } catch {
+    // ignore
+  }
+};
+
+const BannerHeroSkeleton = () => (
+  <div className="relative h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px] overflow-hidden bg-slate-200 animate-pulse">
+    <div className="absolute inset-0 bg-gradient-to-r from-slate-300/90 via-slate-200/70 to-slate-300/90" />
+    <div className="absolute inset-x-0 bottom-0 p-4 md:p-6">
+      <div className="h-3 w-28 rounded bg-white/60 mb-3" />
+      <div className="h-8 md:h-10 w-2/3 rounded bg-white/70 mb-3" />
+      <div className="h-3 w-1/2 rounded bg-white/60 mb-4" />
+      <div className="h-8 w-28 rounded-full bg-white/70" />
+    </div>
+  </div>
+);
 
 const HomeContent = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const screens = useBreakpoint();
+  const isMobile = !screens.sm;
+  const [selectedOffer, setSelectedOffer] = React.useState(null);
+  const bannerCarouselRef = React.useRef(null);
+  const cachedStoriesEntry = React.useMemo(() => readHomeCache("home:stories:v1"), []);
+  const cachedFlashEntry = React.useMemo(() => readHomeCache("home:flash:v1"), []);
+  const cachedProductsEntry = React.useMemo(() => readHomeCache("home:products:v1"), []);
+  const cachedOffersEntry = React.useMemo(() => readHomeCache("home:offers:v1"), []);
+  const cachedBannersEntry = React.useMemo(() => readHomeCache("home:banners:v1"), []);
+
+  const stripHtml = (html = "") =>
+    String(html || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -60,6 +161,9 @@ const HomeContent = () => {
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30,
     refetchOnWindowFocus: false,
+    initialData: () => cachedStoriesEntry?.data,
+    initialDataUpdatedAt: cachedStoriesEntry?.data?.length ? cachedStoriesEntry.ts : 0,
+    placeholderData: (prev) => prev,
   });
 
   const flashQuery = useQuery({
@@ -72,17 +176,26 @@ const HomeContent = () => {
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30,
     refetchOnWindowFocus: false,
+    initialData: () => cachedFlashEntry?.data,
+    initialDataUpdatedAt: cachedFlashEntry?.data?.length ? cachedFlashEntry.ts : 0,
+    placeholderData: (prev) => prev,
   });
 
   const productsQuery = useQuery({
     queryKey: ["home-products-preview"],
     queryFn: async () => {
-      const data = await fetchJson(`${API_BASE_URL}/api/products?page=1&limit=40`, "Products load failed");
+      const data = await fetchJson(
+        `${API_BASE_URL}/api/products?page=1&limit=40&sort=smart&mode=all`,
+        "Products load failed"
+      );
       return Array.isArray(data.data) ? data.data : [];
     },
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30,
     refetchOnWindowFocus: false,
+    initialData: () => cachedProductsEntry?.data,
+    initialDataUpdatedAt: cachedProductsEntry?.data?.length ? cachedProductsEntry.ts : 0,
+    placeholderData: (prev) => prev,
   });
 
   const offersQuery = useQuery({
@@ -92,23 +205,106 @@ const HomeContent = () => {
       if (!d?.success) throw new Error(d?.message || "Offers load failed");
       return Array.isArray(d.offers) ? d.offers : [];
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 15,
     gcTime: 1000 * 60 * 30,
     refetchOnWindowFocus: false,
+    refetchOnMount: "always",
+    initialData: () => cachedOffersEntry?.data,
+    // Empty cached list should not block a live refetch.
+    initialDataUpdatedAt: cachedOffersEntry?.data?.length ? cachedOffersEntry.ts : 0,
+    placeholderData: (prev) => prev,
+  });
+
+  const bannersQuery = useQuery({
+    queryKey: ["home-banners"],
+    queryFn: async () => {
+      const d = await fetchJson(`${API_BASE_URL}/api/offers?type=banner&limit=10`, "Banner load failed");
+      if (!d?.success) throw new Error(d?.message || "Banner load failed");
+      return Array.isArray(d.offers) ? d.offers : [];
+    },
+    staleTime: 1000 * 15,
+    gcTime: 1000 * 60 * 30,
+    refetchOnWindowFocus: false,
+    refetchOnMount: "always",
+    initialData: () => cachedBannersEntry?.data,
+    // Empty cached list should not block a live refetch.
+    initialDataUpdatedAt: cachedBannersEntry?.data?.length ? cachedBannersEntry.ts : 0,
+    placeholderData: (prev) => prev,
   });
 
   const stories = storiesQuery.data || [];
   const flashProducts = flashQuery.data || [];
   const allProducts = productsQuery.data || [];
   const offers = offersQuery.data || [];
+  const banners = bannersQuery.data || [];
+
+  useEffect(() => {
+    if (stories.length > 0) {
+      writeHomeCache("home:stories:v1", stories);
+    }
+  }, [stories]);
+
+  useEffect(() => {
+    if (flashProducts.length > 0) {
+      writeHomeCache("home:flash:v1", flashProducts);
+    }
+  }, [flashProducts]);
+
+  useEffect(() => {
+    if (allProducts.length > 0) {
+      writeHomeCache("home:products:v1", allProducts);
+    }
+  }, [allProducts]);
+
+  useEffect(() => {
+    if (offers.length > 0) {
+      writeHomeCache("home:offers:v1", offers);
+    }
+  }, [offers]);
+
+  useEffect(() => {
+    if (banners.length > 0) {
+      writeHomeCache("home:banners:v1", banners);
+    }
+  }, [banners]);
 
   const storyLoading = storiesQuery.isPending;
   const flashLoading = flashQuery.isPending;
   const productsLoading = productsQuery.isPending;
   const offersLoading = offersQuery.isPending;
+  const bannersLoading = bannersQuery.isPending;
+  const isBackgroundRefreshing =
+    storiesQuery.isFetching ||
+    flashQuery.isFetching ||
+    productsQuery.isFetching ||
+    offersQuery.isFetching ||
+    bannersQuery.isFetching;
+  const hasAnyHomeContent =
+    stories.length > 0 ||
+    flashProducts.length > 0 ||
+    allProducts.length > 0 ||
+    offers.length > 0 ||
+    banners.length > 0;
 
   const errMsg = flashQuery.error?.message || productsQuery.error?.message || "";
   const offersErr = offersQuery.error?.message || "";
+  const bannersErr = bannersQuery.error?.message || "";
+
+  const homeBanners = React.useMemo(() => {
+    const toBanner = (o) => ({
+      id: o.id,
+      title: o.title || "Featured Banner",
+      subtitle: o.subtitle || stripHtml(o.description || ""),
+      image: getFullImageUrl(o.imageUrl),
+      linkUrl: o.linkUrl || "/products",
+    });
+
+    const fromBannerType = banners.map(toBanner).filter((x) => x.image);
+    if (fromBannerType.length > 0) return fromBannerType;
+
+    const fromCarouselType = offers.map(toBanner).filter((x) => x.image).slice(0, 5);
+    return fromCarouselType;
+  }, [banners, offers]);
 
   const handleAddToCartClick = (product, qty = 1) => {
     fetch(`${API_BASE_URL}/api/track/add-to-cart/${product.id}`, {
@@ -126,6 +322,16 @@ const HomeContent = () => {
       })
     );
     message.success(`${qty} x ${product.name} added to cart`);
+    setTimeout(() => {
+      productsQuery.refetch();
+    }, 250);
+  };
+
+  const handleProductCardOpen = (product) => {
+    if (!product?.id) return;
+    fetch(`${API_BASE_URL}/api/track/view/${product.id}`, {
+      method: "POST",
+    }).catch(() => {});
   };
 
   const handleSearch = (event) => {
@@ -136,30 +342,105 @@ const HomeContent = () => {
   };
 
   return (
-    <div className="pb-12 bg-gray-50 min-h-screen">
-      {(errMsg || offersErr) ? (
+    <div className="relative pb-12 min-h-screen bg-gradient-to-b from-orange-50 via-rose-50 to-sky-50 overflow-hidden">
+      {isBackgroundRefreshing && hasAnyHomeContent ? (
+        <div className="pointer-events-none fixed top-0 left-0 right-0 z-50">
+          <div className="h-0.5 w-full bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-500 animate-pulse" />
+        </div>
+      ) : null}
+      <div className="pointer-events-none absolute -top-20 -left-20 h-64 w-64 rounded-full bg-pink-200/40 blur-3xl" />
+      <div className="pointer-events-none absolute top-48 -right-16 h-72 w-72 rounded-full bg-cyan-200/40 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-20 left-1/3 h-56 w-56 rounded-full bg-amber-200/40 blur-3xl" />
+      <div className="relative">
+      {(errMsg || offersErr || bannersErr) ? (
         <div className="px-4 md:px-6 pt-4 space-y-2">
-          {errMsg ? <Alert type="warning" showIcon message={errMsg} /> : null}
-          {offersErr ? <Alert type="info" showIcon message={offersErr} /> : null}
+          {errMsg ? <Alert type="warning" showIcon title={errMsg} /> : null}
+          {offersErr ? <Alert type="info" showIcon title={offersErr} /> : null}
+          {bannersErr ? <Alert type="info" showIcon title={bannersErr} /> : null}
         </div>
       ) : null}
 
-      <div className="bg-white pt-4 pb-2 mb-4 shadow-sm">
+      <div className="mt-4 mb-4">
         <Story stories={stories} loading={storyLoading} />
       </div>
 
       <div className="px-4 md:px-6">
+        <div className="mb-5 overflow-hidden rounded-2xl shadow-md border border-white/70">
+          {bannersLoading ? (
+            <BannerHeroSkeleton />
+          ) : homeBanners.length > 0 ? (
+            <div className="relative">
+              <Carousel
+                ref={bannerCarouselRef}
+                autoplay
+                autoplaySpeed={2800}
+                dots
+                pauseOnHover
+                draggable
+                swipeToSlide
+              >
+                {homeBanners.map((b) => (
+                  <div key={b.id}>
+                    <div className="relative h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px]">
+                      <img src={b.image} alt={b.title} className="h-full w-full object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/35 to-black/10" />
+                      <div className="absolute inset-0 p-4 md:p-6 flex flex-col justify-end text-white">
+                        <p className="text-[11px] uppercase tracking-[0.16em] font-semibold opacity-90">Trending Now</p>
+                        <h1 className="mt-1 text-xl md:text-3xl font-extrabold leading-tight max-w-2xl">{b.title}</h1>
+                        <p className="text-xs md:text-sm opacity-95 mt-1 line-clamp-2">{b.subtitle}</p>
+                        <div className="mt-3">
+                          <Link
+                            to={b.linkUrl || "/products"}
+                            className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold hover:bg-white/30 transition-colors"
+                          >
+                            Shop Now <MoveRight size={16} />
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </Carousel>
+
+              <button
+                type="button"
+                onClick={() => bannerCarouselRef.current?.prev?.()}
+                className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 h-8 w-8 md:h-10 md:w-10 rounded-full bg-black/35 text-white backdrop-blur flex items-center justify-center hover:bg-black/55 transition-colors"
+                aria-label="Previous banner"
+              >
+                <LeftOutlined />
+              </button>
+              <button
+                type="button"
+                onClick={() => bannerCarouselRef.current?.next?.()}
+                className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 h-8 w-8 md:h-10 md:w-10 rounded-full bg-black/35 text-white backdrop-blur flex items-center justify-center hover:bg-black/55 transition-colors"
+                aria-label="Next banner"
+              >
+                <RightOutlined />
+              </button>
+            </div>
+          ) : (
+            <div className="h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px] bg-gradient-to-r from-slate-700 to-slate-500 text-white grid place-items-center">
+              <div className="text-center">
+                <p className="text-xs uppercase tracking-[0.16em] opacity-80">Banner</p>
+                <h3 className="text-xl font-bold mt-1">No active banner yet</h3>
+              
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-between items-end mb-5">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 tracking-tight">Flash Sale</h2>
-            <p className="text-xs text-gray-500 mt-1">High discount products</p>
+            <h2 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-rose-600 to-orange-500 tracking-tight">Flash Sale</h2>
+            <p className="text-xs text-gray-600 mt-1">High discount products</p>
           </div>
 
           <Link
             to="/flash-sales"
             className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
           >
-            View All ->
+            View All <MoveRight size={18} />
           </Link>
         </div>
 
@@ -178,15 +459,11 @@ const HomeContent = () => {
                 <div
                   key={product.id}
                   onClick={() => navigate(`/products/${product.id}`)}
-                  className="min-w-[180px] w-[180px] bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-gray-100 overflow-hidden group cursor-pointer"
+                  className="min-w-[180px] w-[180px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-rose-100 overflow-hidden group cursor-pointer"
                 >
-                  <div className="h-40 w-full bg-gray-50 relative overflow-hidden">
-                    <img
-                      src={getFullImageUrl(product.images?.[0])}
-                      alt={product.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <span className="absolute top-2 left-2 bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
+                  <div className="relative">
+                    <FlashSaleCardImage src={getFullImageUrl(product.images?.[0])} alt={product.name} />
+                    <span className="absolute top-2 left-2 bg-gradient-to-r from-rose-500 to-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
                       FLASH
                     </span>
                   </div>
@@ -194,6 +471,17 @@ const HomeContent = () => {
                   <div className="p-3 flex flex-col flex-grow">
                     <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
                       {product.category || "Item"}
+                    </p>
+
+                    <p
+                      className="text-[10px] text-sky-700 font-medium mb-1 truncate"
+                      title={product.merchant?.name || (product.merchantId ? `Seller #${product.merchantId}` : "")}
+                    >
+                      {product.merchant?.name
+                        ? `Seller: ${product.merchant.name}`
+                        : product.merchantId
+                          ? `Seller #${product.merchantId}`
+                          : ""}
                     </p>
 
                     <h3
@@ -235,7 +523,7 @@ const HomeContent = () => {
                           size="small"
                           icon={<ShoppingCartOutlined />}
                           onClick={() => handleAddToCartClick(product, 1)}
-                          className="flex-grow bg-gray-900 hover:bg-black border-none shadow-none rounded-md flex justify-center items-center"
+                          className="flex-grow !bg-gradient-to-r !from-rose-500 !to-orange-500 hover:!from-rose-600 hover:!to-orange-600 border-none shadow-none rounded-md flex justify-center items-center"
                         />
                       </div>
                     </div>
@@ -250,8 +538,8 @@ const HomeContent = () => {
       <div className="px-4 md:px-6 my-8">
         <div className="flex justify-between items-end mb-5">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 tracking-tight">Special Offers</h2>
-            <p className="text-xs text-gray-500 mt-1">Exclusive deals for you</p>
+            <h2 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-600 to-cyan-500 tracking-tight">Special Offers</h2>
+            <p className="text-xs text-gray-600 mt-1">Exclusive deals for you</p>
           </div>
 
           <button type="button" className="text-sm font-medium text-gray-500 cursor-default" title="Preview only">
@@ -276,7 +564,8 @@ const HomeContent = () => {
               offers.map((o) => (
                 <div
                   key={o.id}
-                  className="min-w-[280px] md:min-w-[350px] h-[160px] md:h-[200px] rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 snap-center relative group"
+                  onClick={() => setSelectedOffer(o)}
+                  className="min-w-[280px] md:min-w-[350px] h-[160px] md:h-[200px] rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 snap-center relative group border border-cyan-100"
                   title={o.title}
                 >
                   <img
@@ -284,8 +573,8 @@ const HomeContent = () => {
                     alt={o.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
-                  <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors"></div>
-                  <div className="absolute left-3 bottom-3 bg-black/60 text-white px-3 py-1 rounded-lg text-xs font-medium">
+                  <div className="absolute inset-0 bg-gradient-to-tr from-black/35 via-transparent to-transparent group-hover:from-black/20 transition-colors" />
+                  <div className="absolute left-3 bottom-3 bg-white/85 text-gray-900 px-3 py-1 rounded-lg text-xs font-semibold">
                     {o.title}
                   </div>
                 </div>
@@ -295,45 +584,16 @@ const HomeContent = () => {
         )}
       </div>
 
-      <div className="px-4 md:px-6 my-8">
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Find Your Perfect Product</h2>
-            <p className="text-sm text-gray-500">Search from thousands of products at the best prices</p>
-          </div>
-
-          <form onSubmit={handleSearch} className="max-w-2xl mx-auto">
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-                <svg className="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <path stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="m21 21-3.5-3.5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
-                </svg>
-              </div>
-
-              <input
-                type="search"
-                name="search"
-                className="block w-full py-4 pl-12 pr-32 text-gray-800 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 text-sm"
-                placeholder="Search for products, brands, categories..."
-              />
-
-              <button
-                type="submit"
-                className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm px-6 py-2.5 transition-colors shadow-sm"
-              >
-                Search
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-
       <div className="px-4 md:px-6">
+        <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur p-3 md:p-4 shadow-sm">
         <div className="flex justify-between items-end mb-4">
-          <span className="text-lg font-semibold text-gray-800">Our Products</span>
-          <Link to="/products" className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors">
-            View All <MoveRight />
-          </Link>
+          <span className="text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-emerald-500">Our Products</span>
+                <Link
+                  to="/products"
+                  className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors inline-flex items-center gap-1"
+                >
+                  View All <MoveRight size={18} />
+                </Link>
         </div>
 
         {productsLoading ? (
@@ -357,6 +617,7 @@ const HomeContent = () => {
                     oldPrice: p.oldPrice ? parseFloat(p.oldPrice) : undefined,
                   }}
                   onAddToCart={(_, qty) => handleAddToCartClick(p, qty)}
+                  onProductClick={() => handleProductCardOpen(p)}
                 />
               ))
             )}
@@ -364,13 +625,109 @@ const HomeContent = () => {
         )}
 
         <div className="flex justify-center">
-          <Link to="/products" className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors">
-            View All Products <MoveRight />
+          <Link to="/products" className="text-sm font-medium  text-blue-600 hover:text-blue-800 transition-colors  gap-1">
+            View All Products
           </Link>
+        </div>
         </div>
       </div>
 
       <Footer />
+
+      <Modal
+        open={!!selectedOffer && !isMobile}
+        onCancel={() => setSelectedOffer(null)}
+        footer={null}
+        width={900}
+        centered
+        destroyOnHidden
+        styles={{ body: { padding: 0, maxHeight: "85vh", overflow: "hidden" } }}
+      >
+        {selectedOffer ? (
+          <div className="flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-gray-100">
+              <div className="text-lg font-semibold">{selectedOffer.title || "Offer"}</div>
+              {selectedOffer.description ? (
+                <div className="text-sm text-gray-500 mt-1 line-clamp-2">
+                  {stripHtml(selectedOffer.description)}
+                </div>
+              ) : null}
+            </div>
+            <div className="overflow-y-auto">
+              <div className="bg-gray-50 p-2">
+                <img
+                  src={getFullImageUrl(selectedOffer.imageUrl)}
+                  alt={selectedOffer.title || "Offer"}
+                  className="w-full max-h-[60vh] object-contain rounded-xl"
+                />
+              </div>
+              {selectedOffer.description ? (
+                <div className="p-4 border-t border-gray-100">
+                  <div
+                    className="prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: selectedOffer.description }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Drawer
+        open={!!selectedOffer && isMobile}
+        onClose={() => setSelectedOffer(null)}
+        placement="bottom"
+        size="86vh"
+        closable={false}
+        title={null}
+        styles={{ header: { display: "none" }, body: { padding: 0, overflow: "hidden" } }}
+      >
+        {selectedOffer ? (
+          <div className="h-full flex flex-col bg-white">
+            <div className="flex justify-center pt-2 pb-1 shrink-0">
+              <div className="h-1.5 w-12 rounded-full bg-gray-300" />
+            </div>
+            <div className="p-4 border-b border-gray-100 shrink-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-lg font-semibold">{selectedOffer.title || "Offer"}</div>
+                  {selectedOffer.description ? (
+                    <div className="text-sm text-gray-500 mt-1 line-clamp-2">
+                      {stripHtml(selectedOffer.description)}
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
+                  onClick={() => setSelectedOffer(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto">
+              <div className="bg-gray-50 p-2">
+                <img
+                  src={getFullImageUrl(selectedOffer.imageUrl)}
+                  alt={selectedOffer.title || "Offer"}
+                  className="w-full max-h-[40vh] object-contain rounded-xl"
+                />
+              </div>
+              {selectedOffer.description ? (
+                <div className="p-4 border-t border-gray-100">
+                  <div
+                    className="prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: selectedOffer.description }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
+      </div>
     </div>
   );
 };

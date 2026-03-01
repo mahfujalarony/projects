@@ -1,6 +1,6 @@
 const router = require("express").Router();
 const auth = require("../middleware/auth");
-const { Conversation, Message } = require("../models");
+const { sequelize, Conversation, Message } = require("../models");
 const { Op, fn, col } = require("sequelize");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
@@ -361,6 +361,93 @@ router.get("/conversations", auth, async (req, res) => {
     res.json({ success: true, rows });
   } catch (error) {
     console.error("[Chat] Error in /conversations:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+// Admin/Support: delete a support conversation (and its messages)
+router.delete("/conversations/:id", auth, async (req, res) => {
+  try {
+    const convoId = Number(req.params.id);
+    if (!Number.isFinite(convoId) || convoId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid conversation id" });
+    }
+
+    const convo = await Conversation.findByPk(convoId);
+    if (!convo || convo.contextType !== "support") {
+      return res.status(404).json({ success: false, message: "Conversation not found" });
+    }
+
+    const canManage = await canManageSupport(req);
+    const canDeleteOwn =
+      String(convo.customerId) === String(req.user?.id) ||
+      isConversationGuestOwner(convo, req.user);
+
+    if (!canManage && !canDeleteOwn) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    await sequelize.transaction(async (tx) => {
+      await Message.destroy({ where: { conversationId: convoId }, transaction: tx });
+      await Conversation.destroy({ where: { id: convoId }, transaction: tx });
+    });
+
+    res.json({ success: true, deletedIds: [convoId] });
+  } catch (error) {
+    console.error(`[Chat] Error in DELETE /conversations/${req.params.id}:`, error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+// Admin/Support: bulk delete support conversations
+router.post("/conversations/bulk-delete", auth, async (req, res) => {
+  try {
+    const canManage = await canManageSupport(req);
+
+    const ids = Array.isArray(req.body?.ids)
+      ? [...new Set(req.body.ids.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))]
+      : [];
+
+    if (!ids.length) {
+      return res.status(400).json({ success: false, message: "No valid conversation ids provided" });
+    }
+
+    const isGuest = isGuestRole(req.user?.role);
+    const guestSessionKey = req.user?.guestSessionKey || null;
+    const baseWhere = canManage
+      ? { id: { [Op.in]: ids }, contextType: "support" }
+      : isGuest
+      ? {
+          id: { [Op.in]: ids },
+          contextType: "support",
+          customerId: req.user.id,
+          isGuestCustomer: true,
+          guestSessionKey,
+        }
+      : {
+          id: { [Op.in]: ids },
+          contextType: "support",
+          customerId: req.user.id,
+        };
+
+    const rows = await Conversation.findAll({
+      where: baseWhere,
+      attributes: ["id"],
+      raw: true,
+    });
+    const validIds = rows.map((r) => Number(r.id)).filter(Boolean);
+    if (!validIds.length) {
+      return res.status(404).json({ success: false, message: "No support conversations found" });
+    }
+
+    await sequelize.transaction(async (tx) => {
+      await Message.destroy({ where: { conversationId: { [Op.in]: validIds } }, transaction: tx });
+      await Conversation.destroy({ where: { id: { [Op.in]: validIds } }, transaction: tx });
+    });
+
+    res.json({ success: true, deletedIds: validIds });
+  } catch (error) {
+    console.error("[Chat] Error in POST /conversations/bulk-delete:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });

@@ -1,6 +1,5 @@
 const { DataTypes} = require('sequelize');
 const sequelize = require('../config/db');
-const User = require('./Authentication');
 
 const parseJsonArray = (value) => {
     const normalize = (arr) =>
@@ -16,6 +15,22 @@ const parseJsonArray = (value) => {
         }
     }
     return [];
+};
+
+const normalizeKeywords = (value) => {
+    const arr = parseJsonArray(value);
+    const seen = new Set();
+    const out = [];
+    for (const item of arr) {
+        const k = String(item || "").trim().toLowerCase();
+        if (!k) continue;
+        if (k.length > 40) continue;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(k);
+        if (out.length >= 10) break;
+    }
+    return out;
 };
 
 
@@ -76,6 +91,18 @@ const MerchentStore = sequelize.define('MerchentStore', {
         },
     },
 
+    keywords: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: [],
+        get() {
+            return normalizeKeywords(this.getDataValue("keywords"));
+        },
+        set(value) {
+            this.setDataValue("keywords", normalizeKeywords(value));
+        },
+    },
+
     soldCount: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -95,10 +122,5 @@ const MerchentStore = sequelize.define('MerchentStore', {
 }, {
     timestamps: true,
 });
-
-
-MerchentStore.belongsTo(User, { foreignKey: "merchantId", as: "merchant" });
-User.hasMany(MerchentStore, { foreignKey: "merchantId", as: "products" });
-
 
 module.exports = MerchentStore;

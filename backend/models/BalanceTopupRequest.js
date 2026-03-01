@@ -18,7 +18,7 @@ const BalanceTopupRequest = sequelize.define(
 
     amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
 
-    transactionId: { type: DataTypes.STRING(120), allowNull: false, unique: true },
+    transactionId: { type: DataTypes.STRING(120), allowNull: false },
 
     status: {
       type: DataTypes.ENUM("pending", "approved", "rejected"),
@@ -32,6 +32,10 @@ const BalanceTopupRequest = sequelize.define(
     tableName: "BalanceTopupRequests",
     timestamps: true,
     indexes: [
+      { fields: ["createdAt"] },
+      { fields: ["status", "createdAt"] },
+      { fields: ["transactionId"] },
+      { fields: ["senderNumber"] },
       { fields: ["userId"] },
       { fields: ["mobileBankingId"] },
       { fields: ["walletId"] },
@@ -40,25 +44,5 @@ const BalanceTopupRequest = sequelize.define(
     ],
   }
 );
-
-
-const User = require("./Authentication");
-const MobileBanking = require("./MobileBanking");
-const Wallet = require("./Wallet");
-const WalletNumber = require("./WalletNumber");
-
-// Associations for admin include queries
-if (!BalanceTopupRequest.associations.user) {
-  BalanceTopupRequest.belongsTo(User, { as: "user", foreignKey: "userId" });
-}
-if (!BalanceTopupRequest.associations.provider) {
-  BalanceTopupRequest.belongsTo(MobileBanking, { as: "provider", foreignKey: "mobileBankingId" });
-}
-if (!BalanceTopupRequest.associations.wallet) {
-  BalanceTopupRequest.belongsTo(Wallet, { as: "wallet", foreignKey: "walletId" });
-}
-if (!BalanceTopupRequest.associations.walletNumber) {
-  BalanceTopupRequest.belongsTo(WalletNumber, { as: "walletNumber", foreignKey: "walletNumberId" });
-}
 module.exports = BalanceTopupRequest;
 

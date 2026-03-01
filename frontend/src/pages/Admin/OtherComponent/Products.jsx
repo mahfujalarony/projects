@@ -18,11 +18,21 @@ import {
   InputNumber,
   Upload,
 } from "antd";
-import { DeleteOutlined, EditOutlined, UploadOutlined, EyeOutlined } from "@ant-design/icons";
+import {
+  DeleteOutlined,
+  EditOutlined,
+  UploadOutlined,
+  EyeOutlined,
+  FilterOutlined,
+  UpOutlined,
+  DownOutlined,
+  InfoCircleOutlined,
+} from "@ant-design/icons";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { normalizeImageUrl } from "../../../utils/imageUrl";
 import { useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../../config/env";
 import { UPLOAD_BASE_URL } from "../../../config/env";
 
@@ -38,6 +48,7 @@ const AdminProducts = () => {
   const screens = useBreakpoint();
   const isMd = !!screens.md;
   const token = useSelector((state) => state.auth?.token);
+  const navigate = useNavigate();
 
   // categories
   const [categories, setCategories] = useState([]);
@@ -47,6 +58,8 @@ const AdminProducts = () => {
   const [catSlug, setCatSlug] = useState(null);
   const [subSlug, setSubSlug] = useState(null);
   const [search, setSearch] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [showPageInfo, setShowPageInfo] = useState(false);
 
   // products
   const [products, setProducts] = useState([]);
@@ -414,17 +427,27 @@ const AdminProducts = () => {
 
   return (
     <div style={{ padding: isMd ? 12 : 8 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div>
           <h2 style={{ fontSize: isMd ? 18 : 16, fontWeight: 800, margin: 0 }}>Products</h2>
-          <div style={{ color: "#666", marginTop: 2, fontSize: 12 }}>
-            {prodLoading ? "Loading..." : `${total} items`}
-          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setShowPageInfo(true)}>
+            Details
+          </Button>
+          <Button
+            size="small"
+            icon={<FilterOutlined />}
+            onClick={() => setShowFilters((prev) => !prev)}
+          >
+            Filters {showFilters ? <UpOutlined /> : <DownOutlined />}
+          </Button>
         </div>
       </div>
 
       {/* Filters (responsive) */}
-      <div style={{ marginTop: 10 }}>
+      {showFilters ? (
+        <div style={{ marginTop: 10 }}>
         <Row gutter={[8, 8]}>
           <Col xs={24} sm={12} md={6}>
             {catLoading ? (
@@ -508,6 +531,7 @@ const AdminProducts = () => {
           </Col>
         </Row>
       </div>
+      ) : null}
 
       {/* Table */}
       <div style={{ marginTop: 10 }}>
@@ -518,20 +542,103 @@ const AdminProducts = () => {
         ) : products.length === 0 ? (
           <Empty description="No products found" />
         ) : (
-          <Table
-            rowKey="id"
-            size="small"
-            columns={columns}
-            dataSource={products}
-            pagination={false}
-            onChange={(pagination, filters, sorter) => {
-              if (sorter?.field && sorter?.order) {
-                setSortBy(sorter.field);
-                setOrder(sorter.order === "ascend" ? "ASC" : "DESC");
-              }
-            }}
-            scroll={isMd ? undefined : { x: 760 }} // ✅ mobile এ table overflow fix
-          />
+          isMd ? (
+            <Table
+              rowKey="id"
+              size="small"
+              columns={columns}
+              dataSource={products}
+              pagination={false}
+              onChange={(pagination, filters, sorter) => {
+                if (sorter?.field && sorter?.order) {
+                  setSortBy(sorter.field);
+                  setOrder(sorter.order === "ascend" ? "ASC" : "DESC");
+                }
+              }}
+            />
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {products.map((r) => {
+                const src = normalizeImageUrl(r?.images?.[0] || r?.imageUrl);
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      border: "1px solid #eee",
+                      borderRadius: 12,
+                      padding: 10,
+                      background: "#fff",
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                      <div
+                        style={{
+                          width: 56,
+                          height: 56,
+                          borderRadius: 10,
+                          overflow: "hidden",
+                          background: "#f5f5f5",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <img
+                          src={src || "https://via.placeholder.com/80"}
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          loading="lazy"
+                        />
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {r.category ? <Tag style={{ marginRight: 0 }}>{r.category}</Tag> : <Tag style={{ marginRight: 0 }}>-</Tag>}
+                          {r.subCategory ? <Tag color="blue" style={{ marginRight: 0 }}>{r.subCategory}</Tag> : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 13 }}>
+                      <div><strong>Price:</strong> Tk {Number(r.price || 0).toLocaleString()}</div>
+                      <div><strong>Stock:</strong> {Number(r.stock || 0)}</div>
+                      <div>
+                        <strong>Sold:</strong>{" "}
+                        <Button
+                          size="small"
+                          type="text"
+                          style={{ padding: 0, height: "auto" }}
+                          onClick={() => {
+                            setSoldModalProduct(r);
+                            setSoldModalOpen(true);
+                          }}
+                        >
+                          <Tag color={Number(r.soldCount || 0) > 0 ? "green" : "default"} style={{ marginRight: 0 }}>
+                            {Number(r.soldCount || 0)}
+                          </Tag>
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                      <Button size="small" icon={<EyeOutlined />} onClick={() => openView(r.id)}>
+                        View
+                      </Button>
+                      <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
+                        Edit
+                      </Button>
+                      <Popconfirm
+                        title="Delete this product?"
+                        description="This action cannot be undone."
+                        okText="Delete"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => deleteProduct(r.id)}
+                      >
+                        <Button danger size="small" type="text" icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
 
         {total > limit && (
@@ -578,7 +685,17 @@ const AdminProducts = () => {
                       alignItems: "center",
                     }}
                   >
-                    <div style={{ fontWeight: 700 }}>Merchant ID: {x.merchantId}</div>
+                    <Button
+                      type="link"
+                      style={{ padding: 0, fontWeight: 700 }}
+                      onClick={() => {
+                        if (!x?.merchantId) return;
+                        navigate(`/saller/${x.merchantId}`);
+                        setSoldModalOpen(false);
+                      }}
+                    >
+                      Merchant ID: {x.merchantId}
+                    </Button>
                     <Tag color="blue" style={{ marginRight: 0 }}>
                       Qty: {x.qty}
                     </Tag>
@@ -735,9 +852,25 @@ const AdminProducts = () => {
           </div>
         )}
       </Modal>
+
+      <Modal
+        open={showPageInfo}
+        title="Products Page Info"
+        footer={null}
+        onCancel={() => setShowPageInfo(false)}
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <div>Total Items: {prodLoading ? "Loading..." : total}</div>
+          <div>Filters খুলে category/subcategory/search apply করতে পারবেন।</div>
+          <div>Mobile এ card view, desktop এ table view।</div>
+        </div>
+      </Modal>
     </div>
   );
 };
 
 export default AdminProducts;
+
+
+
 

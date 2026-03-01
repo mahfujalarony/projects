@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Button, Layout, Menu, theme, Drawer, Grid, Space, Tag, Badge } from "antd";
+import { Button, Layout, Menu, theme, Drawer, Grid, Space, Tag } from "antd";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
-import logo from "./../../public/logo.jpg";
 import {
   LayoutDashboard,
   Store,
@@ -9,15 +8,14 @@ import {
   BookImage,
   ShoppingCart,
   UserCircle,
-  MessageCircle,
   Wallet,
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCcw,
   PlusCircle,
+  X,
 } from "lucide-react";
-import { useSelector } from "react-redux";
-import { API_BASE_URL } from "../../config/env";
+import { API_BASE_URL, UPLOAD_BASE_URL } from "../../config/env";
 
 const { Header, Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -41,12 +39,11 @@ const MerchantDashboardLayout = () => {
 
   const [balance, setBalance] = useState(0);
   const [balanceLoading, setBalanceLoading] = useState(true);
+  const [siteLogo, setSiteLogo] = useState("");
 
   const navigate = useNavigate();
   const location = useLocation();
   const screens = useBreakpoint();
-  const totalUnreadCount = useSelector((state) => state.chat?.totalUnreadCount || 0);
-
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
@@ -86,15 +83,39 @@ const MerchantDashboardLayout = () => {
   useEffect(() => {
     loadBalance();
 
-    const interval = setInterval(loadBalance, 20000);
     const onFocus = () => loadBalance();
     window.addEventListener("focus", onFocus);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener("focus", onFocus);
     };
   }, [loadBalance]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const resolveLogoSrc = (value = "") => {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      return `${UPLOAD_BASE_URL}/${raw.replace(/^\/+/, "")}`;
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/settings`);
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.success || ignore) return;
+        setSiteLogo(resolveLogoSrc(json?.data?.siteLogoUrl));
+      } catch {
+        // no-op: keep fallback
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const menuItems = [
     { key: "/merchant", icon: <LayoutDashboard size={iconSize} />, label: "Dashboard" },
@@ -109,6 +130,7 @@ const MerchantDashboardLayout = () => {
     <Menu
       theme="light"
       mode="inline"
+      style={{ borderInlineEnd: 0, background: "transparent" }}
       selectedKeys={[location.pathname]}
       onClick={(e) => {
         navigate(e.key);
@@ -131,7 +153,25 @@ const MerchantDashboardLayout = () => {
       }}
       onClick={() => navigate("/merchant/my-store")}
     >
-      <img src={logo} alt="Logo" style={{ height: 40 }} />
+      {siteLogo ? (
+        <img src={siteLogo} alt="Logo" style={{ height: 40 }} />
+      ) : (
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 10,
+            background: "#f5f5f5",
+            border: "1px solid #e5e7eb",
+            display: "grid",
+            placeItems: "center",
+            fontWeight: 700,
+            color: "#64748b",
+          }}
+        >
+          M
+        </div>
+      )}
     </div>
   );
 
@@ -156,14 +196,90 @@ const MerchantDashboardLayout = () => {
         </Sider>
       ) : (
         <Drawer
-          title={<LogoSection />}
+          title={null}
+          closable={false}
           placement="left"
           onClose={() => setDrawerVisible(false)}
           open={drawerVisible}
-          styles={{ body: { padding: 0 } }}
-          width={250}
+          styles={{
+            header: { display: "none" },
+            body: { padding: 10, background: "#f5f7fb" },
+            content: {
+              borderTopRightRadius: 18,
+              borderBottomRightRadius: 18,
+              overflow: "hidden",
+            },
+          }}
+          width={278}
         >
-          {renderMenu()}
+          <div
+            style={{
+              borderRadius: 14,
+              padding: "12px 12px 10px",
+              background: "linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)",
+              border: "1px solid #e8eef7",
+              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+              marginBottom: 10,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div
+                onClick={() => {
+                  setDrawerVisible(false);
+                  navigate("/merchant/my-store");
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", minWidth: 0 }}
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    background: "#fff",
+                    border: "1px solid #e6edf7",
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  {siteLogo ? (
+                    <img src={siteLogo} alt="Logo" style={{ height: 26 }} />
+                  ) : (
+                    <span style={{ fontWeight: 700, color: "#64748b" }}>M</span>
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>Merchant Panel</div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Manage store, orders and products</div>
+                </div>
+              </div>
+
+              <Button
+                type="text"
+                size="small"
+                onClick={() => setDrawerVisible(false)}
+                icon={<X size={16} />}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: "#fff",
+                  border: "1px solid #e8eef7",
+                }}
+              />
+            </div>
+          </div>
+
+          <div
+            style={{
+              borderRadius: 14,
+              padding: 6,
+              background: "#ffffff",
+              border: "1px solid #e8eef7",
+              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)",
+            }}
+          >
+            {renderMenu()}
+          </div>
         </Drawer>
       )}
 
@@ -193,14 +309,6 @@ const MerchantDashboardLayout = () => {
           <div style={{ flex: 1 }} />
 
           <Space style={{ paddingRight: 16 }}>
-            <Badge count={Number(totalUnreadCount || 0)} size="small">
-              <Button
-                type="text"
-                icon={<MessageCircle size={18} />}
-                onClick={() => navigate("/chats")}
-              />
-            </Badge>
-
             <Tag
               icon={<Wallet size={14} />}
               color="green"
@@ -234,8 +342,8 @@ const MerchantDashboardLayout = () => {
 
         <Content
           style={{
-            margin: "24px 16px",
-            padding: 24,
+            margin: screens.md ? "24px 16px" : 0,
+            padding: screens.md ? 24 : 0,
             minHeight: 280,
             background: colorBgContainer,
             borderRadius: borderRadiusLG,

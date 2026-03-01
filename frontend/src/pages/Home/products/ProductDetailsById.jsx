@@ -11,7 +11,6 @@ import {
   Alert,
   InputNumber,
   message,
-  Spin,
 } from "antd";
 import { MessageOutlined } from "@ant-design/icons";
 import ProductReviews from "../../../components/common/ProductReviews.jsx"; 
@@ -20,8 +19,9 @@ import { addToCart, updateQty } from "./../../../redux/cartSlice.js";
 import axios from "axios";
 import { normalizeImageUrl } from "../../../utils/imageUrl";
 import { API_BASE_URL } from "../../../config/env";
+import "./ProductDetailsById.css";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const API_BASE = `${API_BASE_URL}`;
 const fallbackImg = "https://via.placeholder.com/320";
 
@@ -36,6 +36,8 @@ const ProductDetailsById = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeImg, setActiveImg] = useState(null);
+  const [relatedProducts, setRelatedProducts] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
 
   const cartItem = useMemo(
     () => cartItems.find((item) => String(item.id) === String(id)),
@@ -81,6 +83,35 @@ const ProductDetailsById = () => {
 
     fetchProduct();
     window.scrollTo(0, 0);
+  }, [id]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const fetchRelated = async () => {
+      try {
+        setRelatedLoading(true);
+        const res = await axios.get(`${API_BASE}/api/products/${id}/related?limit=8`);
+        if (ignore) return;
+        if (res.data?.success) {
+          setRelatedProducts(Array.isArray(res.data.products) ? res.data.products : []);
+        } else {
+          setRelatedProducts([]);
+        }
+      } catch (err) {
+        if (!ignore) {
+          console.error("Related products fetch error:", err);
+          setRelatedProducts([]);
+        }
+      } finally {
+        if (!ignore) setRelatedLoading(false);
+      }
+    };
+
+    if (id) fetchRelated();
+    return () => {
+      ignore = true;
+    };
   }, [id]);
 
   const cleanImage = (url) => normalizeImageUrl(url) || fallbackImg;
@@ -181,10 +212,26 @@ const ProductDetailsById = () => {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <Spin size="large" tip="Loading product details...">
-          <div />
-        </Spin>
+      <div className="mx-auto w-full max-w-7xl px-3 py-3 sm:px-4 sm:py-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+            <div className="w-full lg:w-auto">
+              <div className="h-[320px] w-full max-w-[420px] animate-pulse rounded-xl bg-slate-200" />
+              <div className="mt-2 flex gap-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-14 w-14 animate-pulse rounded-md bg-slate-200" />
+                ))}
+              </div>
+            </div>
+            <div className="w-full space-y-3">
+              <div className="h-8 w-3/4 animate-pulse rounded bg-slate-200" />
+              <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
+              <div className="h-6 w-28 animate-pulse rounded bg-slate-200" />
+              <div className="h-24 animate-pulse rounded-xl bg-slate-200" />
+              <div className="h-10 w-44 animate-pulse rounded-xl bg-slate-200" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -206,21 +253,36 @@ const ProductDetailsById = () => {
   const reviewCount = Number(product.totalReviews ?? 0);
 
   return (
-    <>
-      <Card bodyStyle={{ padding: 24 }}>
-        <Space align="start" size="large" wrap>
+    <div className="mx-auto w-full max-w-7xl px-3 py-3 sm:px-4 sm:py-4">
+      <Card bodyStyle={{ padding: 16 }}>
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           {/* Images */}
-          <Space direction="vertical" size="small">
+          <div className="w-full lg:w-auto">
             <Image
               src={cleanImage(mainImg)}
               alt={product.name}
-              width={320}
-              height={320}
-              style={{ objectFit: "cover", borderRadius: 12 }}
+              width="100%"
+              style={{
+                width: "100%",
+                maxWidth: 420,
+                aspectRatio: "1 / 1",
+                objectFit: "cover",
+                borderRadius: 12,
+              }}
               fallback={fallbackImg}
             />
 
-            <Space wrap>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "nowrap",
+                overflowX: "auto",
+                marginTop: 8,
+                paddingBottom: 4,
+                maxWidth: 420,
+              }}
+            >
               {images.map((src, idx) => {
                 const clean = cleanImage(src);
                 const isActive = String(src) === String(mainImg);
@@ -243,11 +305,11 @@ const ProductDetailsById = () => {
                   />
                 );
               })}
-            </Space>
-          </Space>
+            </div>
+          </div>
 
           {/* Info */}
-          <Space direction="vertical" size="middle" style={{ maxWidth: 520 }}>
+          <div className="w-full min-w-0" style={{ maxWidth: 620 }}>
             <Title level={3} style={{ marginBottom: 4 }}>
               {product.name}
             </Title>
@@ -274,13 +336,13 @@ const ProductDetailsById = () => {
               ৳{Number(product.price).toFixed(2)}
             </Title>
 
-            <Paragraph style={{ marginBottom: 4 }}>
+            <div style={{ marginBottom: 8 }} className="product-description">
               <div
                 dangerouslySetInnerHTML={{
                   __html: product.description || "No description available.",
                 }}
               />
-            </Paragraph>
+            </div>
 
             {/* Quantity + Cart */}
             <div
@@ -331,7 +393,7 @@ const ProductDetailsById = () => {
                 size="large"
                 disabled={product.stock <= 0}
                 onClick={handleAdd}
-                style={{ flex: "1 0 200px", minWidth: 200, maxWidth: 300 }}
+                style={{ flex: "1 1 220px", minWidth: 160, maxWidth: 320 }}
               >
                 {cartItem ? "Update Cart" : "Add to Cart"}
               </Button>
@@ -340,7 +402,7 @@ const ProductDetailsById = () => {
                 size="large"
                 icon={<MessageOutlined />}
                 onClick={handleMessage}
-                style={{ flex: "0 0 auto" }}
+                style={{ flex: "1 1 140px" }}
               >
                 Support
               </Button>
@@ -352,15 +414,15 @@ const ProductDetailsById = () => {
                 {cartItem && <Tag color="blue">In cart: {cartItem.qty}</Tag>}
               </div>
             </div>
-          </Space>
-        </Space>
+          </div>
+        </div>
       </Card>
 
       {/* Merchant */}
       <Card style={{ marginTop: 24 }}>
         <Title level={4}>Merchant</Title>
         {product.merchant ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             <Image
               src={cleanImage(product.merchant.imageUrl || product.merchant.logo)}
               alt={product.merchant.name}
@@ -389,6 +451,72 @@ const ProductDetailsById = () => {
         )}
       </Card>
 
+      {/* Related Products */}
+      {(relatedLoading || relatedProducts.length > 0) && (
+        <Card style={{ marginTop: 24 }}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <Title level={4} style={{ margin: 0 }}>
+              Related Products
+            </Title>
+            {relatedLoading ? <Text type="secondary">Loading...</Text> : null}
+          </div>
+
+          {relatedLoading ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-lg border border-gray-200 p-2">
+                  <div className="aspect-square w-full animate-pulse rounded bg-gray-100" />
+                  <div className="mt-2 h-3 w-3/4 animate-pulse rounded bg-gray-100" />
+                  <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-gray-100" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {relatedProducts.map((rp) => (
+                <button
+                  key={rp.id}
+                  type="button"
+                  onClick={() => navigate(`/products/${rp.id}`)}
+                  className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left transition hover:shadow-md"
+                >
+                  <div className="aspect-square w-full bg-gray-50">
+                    <img
+                      src={cleanImage(rp.images?.[0])}
+                      alt={rp.name}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="p-3">
+                    <div className="mb-1 line-clamp-2 min-h-[2.5rem] text-sm font-medium text-gray-800">
+                      {rp.name}
+                    </div>
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {rp.category ? <Tag className="m-0">{rp.category}</Tag> : null}
+                      {rp.subCategory ? (
+                        <Tag color="blue" className="m-0">
+                          {rp.subCategory}
+                        </Tag>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-orange-600">
+                        ৳{Number(rp.price || 0).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {Number(rp.averageRating || 0) > 0
+                          ? `${Number(rp.averageRating).toFixed(1)}★`
+                          : "New"}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Reviews */}
       <ProductReviews
         productId={id}
@@ -402,7 +530,7 @@ const ProductDetailsById = () => {
           }));
         }}
       />
-    </>
+    </div>
   );
 };
 

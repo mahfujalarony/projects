@@ -7,7 +7,6 @@ import {
   Upload,
   Button,
   Input,
-  InputNumber,
   message,
   Tag,
   List,
@@ -17,6 +16,7 @@ import {
   Divider,
   Empty,
   Skeleton,
+  Select,
 } from "antd";
 import { PlusOutlined, DeleteOutlined, UploadOutlined, ReloadOutlined } from "@ant-design/icons";
 import axios from "axios";
@@ -41,18 +41,23 @@ export default function CreateStory() {
   const token = useSelector((s) => s.auth?.token);
 
   const [title, setTitle] = useState("");
-  const [expiryHours, setExpiryHours] = useState(24);
 
   const [fileList, setFileList] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   const [myStories, setMyStories] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [storyFee, setStoryFee] = useState(0);
+  const [merchantBalance, setMerchantBalance] = useState(0);
+  const [storyDurationHours, setStoryDurationHours] = useState(24);
+  const [storeProducts, setStoreProducts] = useState([]);
+  const [storeLoading, setStoreLoading] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState(null);
 
   const headers = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
 
-  const MAX_IMAGES = 8;
-  const MAX_MB = 6;
+  const MAX_IMAGES = 3;
+  const MAX_MB = 9;
 
   const beforeUpload = (file) => {
     const isImg = file.type?.startsWith("image/");
@@ -87,8 +92,44 @@ export default function CreateStory() {
     }
   };
 
+  const fetchStoreProducts = async () => {
+    if (!token) return;
+    try {
+      setStoreLoading(true);
+      const res = await axios.get(`${API_BASE}/api/merchant/store?page=1&limit=100`, { headers });
+      const list = Array.isArray(res?.data?.data) ? res.data.data : [];
+      setStoreProducts(list);
+    } catch (e) {
+      console.error(e);
+      setStoreProducts([]);
+    } finally {
+      setStoreLoading(false);
+    }
+  };
+
+  const fetchStoryConfig = async () => {
+    try {
+      const [settingsRes, balanceRes] = await Promise.all([
+        axios.get(`${API_BASE}/api/settings`),
+        token ? axios.get(`${API_BASE}/api/merchant/me/balance`, { headers }) : Promise.resolve(null),
+      ]);
+
+      const fee = Number(settingsRes?.data?.data?.storyPostFee || 0);
+      setStoryFee(Number.isFinite(fee) && fee > 0 ? fee : 0);
+      const duration = Number(settingsRes?.data?.data?.storyDurationHours || 24);
+      setStoryDurationHours(Number.isFinite(duration) && duration >= 24 ? Math.round(duration) : 24);
+
+      const bal = Number(balanceRes?.data?.data?.balance || 0);
+      setMerchantBalance(Number.isFinite(bal) ? bal : 0);
+    } catch (e) {
+      console.error("fetchStoryConfig error:", e);
+    }
+  };
+
   useEffect(() => {
     fetchMyStories();
+    fetchStoryConfig();
+    fetchStoreProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -118,6 +159,9 @@ export default function CreateStory() {
   const handleCreate = async () => {
     if (!token) return message.info("Login required");
     if (!fileList.length) return message.error("Select at least 1 image");
+    if (Number(storyFee || 0) > Number(merchantBalance || 0)) {
+      return message.error(`Insufficient balance. Story fee is BDT ${Number(storyFee || 0)}`);
+    }
 
     try {
       setSubmitting(true);
@@ -133,15 +177,16 @@ export default function CreateStory() {
       const payload = {
         title: title.trim() || null,
         mediaUrls,
-        expiryHours: Number(expiryHours || 24),
+        productId: selectedProductId || null,
       };
 
       const res = await axios.post(`${API_BASE}/api/stories`, payload, { headers });
       if (res.data?.success) {
         message.success("Story created!");
         setTitle("");
-        setExpiryHours(24);
         setFileList([]);
+        setSelectedProductId(null);
+        await fetchStoryConfig();
         await fetchMyStories();
       } else {
         message.error(res.data?.message || "Failed");
@@ -153,6 +198,14 @@ export default function CreateStory() {
       setSubmitting(false);
     }
   };
+
+  const durationLabel = useMemo(() => {
+    if (storyDurationHours === 24) return "24 Hours";
+    if (storyDurationHours % 24 === 0) return `${storyDurationHours / 24} Days`;
+    return `${storyDurationHours} Hours`;
+  }, [storyDurationHours]);
+
+  const canCreateStory = !submitting && fileList.length > 0 && Number(merchantBalance || 0) >= Number(storyFee || 0);
 
   const toggleActive = async (story, checked) => {
     try {
@@ -200,8 +253,15 @@ export default function CreateStory() {
                 Create Story
               </Title>
               <Text type="secondary">
-                Upload images to 5001, then create a 24h story for your shop.
+                Upload images to 5001, then create a timed story for your shop.
               </Text>
+              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Tag color="blue">Story Fee: ৳{Number(storyFee || 0).toLocaleString()}</Tag>
+                <Tag color="purple">Duration: {durationLabel}</Tag>
+                <Tag color={Number(merchantBalance || 0) >= Number(storyFee || 0) ? "green" : "red"}>
+                  Balance: ৳{Number(merchantBalance || 0).toLocaleString()}
+                </Tag>
+              </div>
             </div>
           </Space>
 
@@ -216,16 +276,36 @@ export default function CreateStory() {
             />
 
             <div>
-              <Text strong>Expiry (hours)</Text>
-              <div style={{ marginTop: 6 }}>
-                <InputNumber
-                  min={1}
-                  max={168}
-                  value={expiryHours}
-                  onChange={setExpiryHours}
+              <Text strong>Link Product (optional)</Text>
+              <div style={{ marginTop: 8 }}>
+                <Select
+                  showSearch
+                  allowClear
+                  loading={storeLoading}
+                  value={selectedProductId}
+                  onChange={(v) => setSelectedProductId(v || null)}
+                  placeholder="Select from your store products"
+                  style={{ width: "100%" }}
+                  options={storeProducts.map((p) => ({
+                    value: p.id,
+                    label: `${p.name} (#${p.id})`,
+                  }))}
+                  filterOption={(input, option) =>
+                    String(option?.label || "").toLowerCase().includes(String(input || "").toLowerCase())
+                  }
                 />
+              </div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                If selected, viewers can open this product directly from story.
+              </Text>
+            </div>
+
+            <div>
+              <Text strong>Story Duration</Text>
+              <div style={{ marginTop: 6 }}>
+                <Tag color="purple">{durationLabel}</Tag>
                 <Text type="secondary" style={{ marginLeft: 10 }}>
-                  (default 24 hours)
+                  Admin fixed setting (user cannot change)
                 </Text>
               </div>
             </div>
@@ -258,10 +338,14 @@ export default function CreateStory() {
               type="primary"
               icon={<UploadOutlined />}
               loading={submitting}
+              disabled={!canCreateStory}
               onClick={handleCreate}
             >
               Create Story
             </Button>
+            {Number(merchantBalance || 0) < Number(storyFee || 0) ? (
+              <Text type="danger">Insufficient balance to post story.</Text>
+            ) : null}
           </Space>
         </Card>
 
@@ -315,6 +399,7 @@ export default function CreateStory() {
                             {s.title || "Untitled Story"}{" "}
                             <Text type="secondary">#{s.id}</Text>
                           </Text>
+                          {s.productId ? <Tag color="cyan">Product #{s.productId}</Tag> : null}
                           {expired ? <Tag color="default">Expired</Tag> : <Tag color="green">Live</Tag>}
                           {s.isActive ? <Tag color="blue">Active</Tag> : <Tag color="red">Inactive</Tag>}
                         </Space>

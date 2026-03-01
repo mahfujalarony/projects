@@ -16,7 +16,7 @@ exports.listTopups = async (req, res) => {
     // /api/admin/topups?status=pending&page=1&limit=20&q=trx
     const status = (req.query.status || "pending").trim();
     const page = clampInt(req.query.page, 1);
-    const limit = clampInt(req.query.limit, 20);
+    const limit = Math.min(clampInt(req.query.limit, 20), 50);
     const q = (req.query.q || "").trim();
 
     const where = {};
@@ -36,7 +36,12 @@ exports.listTopups = async (req, res) => {
     const { count, rows } = await BalanceTopupRequest.findAndCountAll({
       where,
       include: [
-        { model: User, as: "user", attributes: ["id", "name", "email", "balance", "role", "imageUrl"], required: false },
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "email", "balance", "role", "imageUrl", "topupBlockedUntil"],
+          required: false,
+        },
         { model: MobileBanking, as: "provider", attributes: ["id", "name", "imgUrl"], required: false },
         { model: Wallet, as: "wallet", attributes: ["id", "name", "imgUrl", "visibility"], required: false },
         { model: WalletNumber, as: "walletNumber", attributes: ["id", "number", "label"], required: false },
@@ -46,13 +51,49 @@ exports.listTopups = async (req, res) => {
       limit,
     });
 
+    const userIds = Array.from(
+      new Set(
+        (rows || [])
+          .map((r) => Number(r?.userId || 0))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    let rejectedByUser = {};
+    if (userIds.length) {
+      const rejectedRows = await BalanceTopupRequest.findAll({
+        attributes: [
+          "userId",
+          [sequelize.fn("COUNT", sequelize.col("id")), "rejectedCount"],
+        ],
+        where: {
+          userId: { [Op.in]: userIds },
+          status: "rejected",
+        },
+        group: ["userId"],
+        raw: true,
+      });
+
+      rejectedByUser = Object.fromEntries(
+        (rejectedRows || []).map((r) => [String(r.userId), Number(r.rejectedCount || 0)])
+      );
+    }
+
+    const rowsWithMeta = (rows || []).map((r) => {
+      const json = r.toJSON();
+      return {
+        ...json,
+        userRejectedCount: Number(rejectedByUser[String(json.userId)] || 0),
+      };
+    });
+
     return res.json({
       success: true,
       data: {
         page,
         limit,
         total: count,
-        rows,
+        rows: rowsWithMeta,
       },
     });
   } catch (err) {
@@ -120,14 +161,94 @@ exports.rejectTopup = async (req, res) => {
     if (row.status !== "pending") {
       return res.status(400).json({ success: false, message: `Already ${row.status}` });
     }
+    if (!adminNote) {
+      return res.status(400).json({ success: false, message: "Reject reason is required" });
+    }
 
     row.status = "rejected";
-    row.adminNote = adminNote || row.adminNote || null;
+    row.adminNote = adminNote;
     await row.save();
 
     return res.json({ success: true, message: "Rejected", data: row });
   } catch (err) {
     console.error("rejectTopup error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.blockUserTopup = async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    const days = Number(req.body?.days);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid userId" });
+    }
+    if (![1, 2, 3, 4, 5].includes(days)) {
+      return res.status(400).json({ success: false, message: "days must be one of 1,2,3,4,5" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    const now = new Date();
+    const base = user.topupBlockedUntil && new Date(user.topupBlockedUntil) > now
+      ? new Date(user.topupBlockedUntil)
+      : now;
+    base.setDate(base.getDate() + days);
+    user.topupBlockedUntil = base;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: `Topup blocked for ${days} day(s)`,
+      data: { userId: user.id, topupBlockedUntil: user.topupBlockedUntil },
+    });
+  } catch (err) {
+    console.error("blockUserTopup error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.unblockUserTopup = async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid userId" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    user.topupBlockedUntil = null;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Topup block removed",
+      data: { userId: user.id, topupBlockedUntil: null },
+    });
+  } catch (err) {
+    console.error("unblockUserTopup error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+exports.deleteTopup = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid topup id" });
+    }
+
+    const row = await BalanceTopupRequest.findByPk(id);
+    if (!row) {
+      return res.status(404).json({ success: false, message: "Topup request not found" });
+    }
+
+    await row.destroy();
+    return res.json({ success: true, message: "Topup request deleted" });
+  } catch (err) {
+    console.error("deleteTopup error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

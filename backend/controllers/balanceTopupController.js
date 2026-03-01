@@ -4,6 +4,7 @@ const MobileBanking = require("../models/MobileBanking");
 const Wallet = require("../models/Wallet");
 const WalletNumber = require("../models/WalletNumber");
 const BalanceTopupRequest = require("../models/BalanceTopupRequest");
+const User = require("../models/Authentication");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -12,6 +13,12 @@ const asMoney = (v) => {
   if (!Number.isFinite(n) || n <= 0) return null;
   return n.toFixed(2);
 };
+
+const normalizeTransactionId = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
 
 // ✅ client: active mobile bankings
 exports.clientListMobileBankings = async (req, res) => {
@@ -84,6 +91,20 @@ exports.createTopupRequest = async (req, res) => {
     const userId = req.user?.id || req.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
+    const me = await User.findByPk(userId, {
+      attributes: ["id", "topupBlockedUntil"],
+    });
+    if (!me) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const blockedUntil = me.topupBlockedUntil ? new Date(me.topupBlockedUntil) : null;
+    if (blockedUntil && blockedUntil.getTime() > Date.now()) {
+      return res.status(403).json({
+        success: false,
+        message: `Topup request is blocked until ${blockedUntil.toLocaleString()}`,
+        data: { topupBlockedUntil: blockedUntil },
+      });
+    }
+
     const {
       mobileBankingId,
       walletId,
@@ -105,13 +126,24 @@ exports.createTopupRequest = async (req, res) => {
     if (!isNonEmpty(transactionId)) {
       return res.status(400).json({ success: false, message: "transactionId is required" });
     }
+    const txId = normalizeTransactionId(transactionId);
+    if (!txId) {
+      return res.status(400).json({ success: false, message: "transactionId is required" });
+    }
 
-    // txId unique
+    // Same TX ID can be reused only if previous requests are rejected.
+    // Any existing pending/approved record with same TX ID blocks new request.
     const txExists = await BalanceTopupRequest.findOne({
-      where: { transactionId: transactionId.trim() },
+      where: {
+        transactionId: txId,
+        status: { [Op.in]: ["pending", "approved"] },
+      },
     });
     if (txExists) {
-      return res.status(409).json({ success: false, message: "This transactionId already submitted" });
+      return res.status(409).json({
+        success: false,
+        message: "This transaction ID is already used in a pending/approved request",
+      });
     }
 
     // validate provider/wallet/number chain & active
@@ -146,13 +178,19 @@ exports.createTopupRequest = async (req, res) => {
       walletNumberId: wnum.id,
       senderNumber: senderNumber.trim(),
       amount: amt,
-      transactionId: transactionId.trim(),
+      transactionId: txId,
       status: "pending",
     });
 
     res.json({ success: true, message: "Topup request submitted", data: row });
   } catch (err) {
     console.error("createTopupRequest error:", err);
+    if (err?.name === "SequelizeUniqueConstraintError") {
+      return res.status(409).json({
+        success: false,
+        message: "This transaction ID is already used in a pending/approved request",
+      });
+    }
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -163,20 +201,45 @@ exports.getMyPendingTopups = async (req, res) => {
   try {
     const userId = req.user?.id || req.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const me = await User.findByPk(userId, {
+      attributes: ["id", "topupBlockedUntil"],
+    });
 
     const rows = await BalanceTopupRequest.findAll({
       where: { userId, status: "pending" },
       order: [["createdAt", "DESC"]],
       limit: 20,
     });
+    const rejectedCount = await BalanceTopupRequest.count({
+      where: { userId, status: "rejected" },
+    });
+    const latestRejected = await BalanceTopupRequest.findOne({
+      where: {
+        userId,
+        status: "rejected",
+        adminNote: { [Op.ne]: null },
+      },
+      attributes: ["id", "transactionId", "amount", "adminNote", "createdAt", "updatedAt"],
+      order: [["updatedAt", "DESC"]],
+    });
 
     const totalAmount = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    const blockedUntil = me?.topupBlockedUntil ? new Date(me.topupBlockedUntil) : null;
+    const isTopupBlocked = Boolean(blockedUntil && blockedUntil.getTime() > Date.now());
+    const blockedDaysLeft = isTopupBlocked
+      ? Math.max(1, Math.ceil((blockedUntil.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+      : 0;
 
     return res.json({
       success: true,
       data: {
+        topupBlockedUntil: blockedUntil || null,
+        isTopupBlocked,
+        blockedDaysLeft,
         count: rows.length,
         totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+        rejectedCount: Number(rejectedCount || 0),
+        latestRejected: latestRejected || null,
         latest: rows[0] || null,
         rows,
       },

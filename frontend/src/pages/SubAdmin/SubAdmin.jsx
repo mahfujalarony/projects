@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Tabs, Spin, Alert, Empty, message } from "antd";
+import { Tabs, Spin, Alert, Empty, message, Grid } from "antd";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -29,6 +29,8 @@ export const PERMS = {
 };
 
 export default function SubAdminPanel() {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const token =
     useSelector((state) => state.auth?.token) ||
     JSON.parse(localStorage.getItem("userInfo") || "{}")?.token;
@@ -90,15 +92,41 @@ export default function SubAdminPanel() {
 
   if (loading) {
     return (
-      <div style={{ padding: 16 }}>
-        <Spin />
+      <div style={{ padding: isMobile ? 0 : 12 }}>
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+            borderRadius: isMobile ? 0 : 16,
+            padding: 18,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
+          }}
+        >
+          <Spin />
+          <div>
+            <div style={{ fontWeight: 700, color: "#111827" }}>Loading Sub Admin Panel</div>
+            <div style={{ fontSize: 12, color: "#6b7280" }}>Checking module permissions...</div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!allowedTabs.length) {
     return (
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: isMobile ? 0 : 12 }}>
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            background: "#fff",
+            borderRadius: isMobile ? 0 : 16,
+            padding: isMobile ? 12 : 16,
+            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
+          }}
+        >
         <Alert
           type="warning"
           showIcon
@@ -108,12 +136,72 @@ export default function SubAdminPanel() {
         <div style={{ marginTop: 16 }}>
           <Empty description="No modules assigned" />
         </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: isMobile ? 0 : 12 }}>
+      <div
+        style={{
+          marginBottom: 12,
+          borderRadius: isMobile ? 0 : 16,
+          border: "1px solid #e5e7eb",
+          background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 55%, #eef6ff 100%)",
+          padding: isMobile ? 12 : 14,
+          boxShadow: "0 10px 28px rgba(15, 23, 42, 0.05)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>Sub Admin Panel</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+              Role-based modules only. Tabs are visible based on your assigned permissions.
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div
+              style={{
+                borderRadius: 999,
+                border: "1px solid #dbeafe",
+                background: "#eff6ff",
+                color: "#1d4ed8",
+                fontWeight: 700,
+                fontSize: 12,
+                padding: "6px 10px",
+              }}
+            >
+              Modules: {allowedTabs.length}
+            </div>
+            {permissions.includes(PERMS.manageSupportChat) ? (
+              <div
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #e9d5ff",
+                  background: "#faf5ff",
+                  color: "#7e22ce",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  padding: "6px 10px",
+                }}
+              >
+                Chats: {Number(totalUnreadCount || 0)}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          border: "1px solid #e5e7eb",
+          background: "#fff",
+          borderRadius: isMobile ? 0 : 16,
+          padding: isMobile ? 8 : 12,
+          boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)",
+        }}
+      >
       <Tabs
         activeKey={activeKey}
         onChange={(key) => {
@@ -129,6 +217,7 @@ export default function SubAdminPanel() {
           children: <div style={{ marginTop: 8 }}>{t.element}</div>,
         }))}
       />
+      </div>
     </div>
   );
 }

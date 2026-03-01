@@ -1,7 +1,7 @@
 ﻿// MyStore.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Modal, Form, Input, Button, message } from "antd";
+import { Modal, Form, Input, Button, message, Select, Tag } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
@@ -21,6 +21,43 @@ const firstImage = (images) => {
   if (Array.isArray(images) && images.length > 0) return images[0];
   if (typeof images === "string") return images;
   return "";
+};
+
+const normalizeKeywordList = (value) => {
+  const input = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+
+  const seen = new Set();
+  const out = [];
+  for (const item of input) {
+    const k = String(item || "").trim().toLowerCase();
+    if (!k || k.length > 40 || seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+    if (out.length >= 10) break;
+  }
+  return out;
+};
+
+const suggestKeywords = (item) => {
+  const raw = [item?.name, item?.category, item?.subCategory]
+    .filter(Boolean)
+    .flatMap((v) => {
+      const s = String(v || "").trim();
+      return [
+        s,
+        ...s
+          .toLowerCase()
+          .replace(/[^a-z0-9\u0980-\u09ff\s-]/g, " ")
+          .replace(/[-_]+/g, " ")
+          .split(/\s+/)
+          .filter(Boolean),
+      ];
+    });
+  return normalizeKeywordList(raw);
 };
 
 const modules = {
@@ -134,6 +171,7 @@ export default function MyStore() {
     form.setFieldsValue({
       name: item.name,
       description: item.description || "",
+      keywords: normalizeKeywordList(item.keywords || suggestKeywords(item)),
     });
     setIsEditModalOpen(true);
   };
@@ -141,6 +179,11 @@ export default function MyStore() {
   const handleUpdate = async () => {
     try {
       const values = await form.validateFields();
+      const payload = {
+        ...values,
+        keywords: normalizeKeywordList(values.keywords || []),
+      };
+      if ((payload.keywords || []).length > 10) throw new Error("Maximum 10 keywords allowed");
       setUpdating(true);
       
       const res = await fetch(`${API_BASE}/api/merchant/store/${editingItem.id}`, {
@@ -149,7 +192,7 @@ export default function MyStore() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(values),
+        body: JSON.stringify(payload),
       });
 
       const text = await res.text();
@@ -178,27 +221,27 @@ export default function MyStore() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-5">
+    <div className="mx-auto w-full max-w-6xl px-3 py-2 sm:px-4 sm:py-3">
       {/* Top bar */}
-      <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+      <div className="mb-3 rounded-xl border border-gray-200 bg-white p-3">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold">My Store</h2>
             <p className="text-xs text-gray-500">Manage your products (view only)</p>
           </div>
 
-          <div className="flex w-full flex-col gap-2 md:ml-auto md:w-auto md:flex-row md:items-center">
+          <div className="grid w-full grid-cols-2 gap-2 md:ml-auto md:flex md:w-auto md:grid-cols-none md:flex-row md:items-center">
             <input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by name/category..."
-              className="h-10 w-full rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-gray-400 md:w-[280px]"
+              className="col-span-2 h-9 w-full rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-gray-400 md:h-10 md:w-[280px]"
             />
 
             <select
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm outline-none focus:border-gray-400 md:w-[120px]"
+              className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm outline-none focus:border-gray-400 md:h-10 md:w-[120px]"
             >
               {[8, 12, 16, 24].map((n) => (
                 <option key={n} value={n}>
@@ -207,7 +250,7 @@ export default function MyStore() {
               ))}
             </select>
 
-            <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 md:ml-2 md:whitespace-nowrap">
+            <div className="flex h-9 items-center rounded-md border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700 md:ml-2 md:h-10 md:whitespace-nowrap">
               Total: <span className="font-semibold">{meta?.total || 0}</span>
             </div>
           </div>
@@ -266,6 +309,18 @@ export default function MyStore() {
                     <div className="truncate text-xs text-gray-500">
                       {p.category || "-"}
                     </div>
+                    {Array.isArray(p.keywords) && p.keywords.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {p.keywords.slice(0, 3).map((k) => (
+                          <Tag key={k} style={{ marginInlineEnd: 0 }} color="blue">
+                            {k}
+                          </Tag>
+                        ))}
+                        {p.keywords.length > 3 ? (
+                          <Tag style={{ marginInlineEnd: 0 }}>+{p.keywords.length - 3}</Tag>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="mt-2 flex items-center justify-between gap-2">
@@ -343,6 +398,27 @@ export default function MyStore() {
               modules={modules}
               formats={formats}
               style={{ height: 200, marginBottom: 50 }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="keywords"
+            label="Keywords (max 10)"
+            extra="Search/filter better korar jonno comma/tag diye add korun"
+          >
+            <Select
+              mode="tags"
+              tokenSeparators={[","]}
+              maxTagCount={6}
+              placeholder="e.g. gaming phone, budget, samsung"
+              onChange={(vals) => {
+                const clean = normalizeKeywordList(vals);
+                if (vals.length > 10) message.warning("Maximum 10 keywords");
+                form.setFieldValue("keywords", clean);
+              }}
+              options={normalizeKeywordList(suggestKeywords(editingItem || {})).map((k) => ({
+                label: k,
+                value: k,
+              }))}
             />
           </Form.Item>
         </Form>

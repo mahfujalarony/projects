@@ -3,12 +3,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import {
+  Alert,
+  Avatar,
   Button,
   Card,
-  Collapse,
   Form,
+  Grid,
   Input,
-  InputNumber,
   Modal,
   Popconfirm,
   Select,
@@ -16,6 +17,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Typography,
   Upload,
@@ -26,6 +28,7 @@ import { API_BASE_URL } from "../../../config/env"
 import { UPLOAD_BASE_URL } from "../../../config/env";
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 const API = `${API_BASE_URL}/api`;
 const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
@@ -46,6 +49,7 @@ export default function MobileBankingId() {
   const [fetchingUsers, setFetchingUsers] = useState(false);
 
   const [createWalletForm] = Form.useForm();
+  const selectedOwnerUserId = Form.useWatch("ownerUserId", createWalletForm);
 
   // ✅ wallet logo upload states
   const [walletLogoUploading, setWalletLogoUploading] = useState(false);
@@ -56,7 +60,9 @@ export default function MobileBankingId() {
   const [activeWallet, setActiveWallet] = useState(null);
   const [numbersLoading, setNumbersLoading] = useState(false);
   const [numbers, setNumbers] = useState([]);
+  const [deletingNumberIds, setDeletingNumberIds] = useState([]);
   const [addNumberForm] = Form.useForm();
+  const screens = useBreakpoint();
 
   const authHeaders = useMemo(
     () => ({ Authorization: `Bearer ${token}` }),
@@ -65,15 +71,60 @@ export default function MobileBankingId() {
 
   const searchTimeout = React.useRef(null);
 
+  const walletSummary = useMemo(() => {
+    const list = safeArr(wallets);
+    const total = list.length;
+    const active = list.filter((w) => !!w?.isActive).length;
+    const publicCount = list.filter((w) => w?.visibility === "public").length;
+    const privateCount = list.filter((w) => w?.visibility === "private").length;
+    const totalNumbers = list.reduce((sum, w) => sum + Number(w?.numbersCount || w?.numberCount || 0), 0);
+    return { total, active, publicCount, privateCount, totalNumbers };
+  }, [wallets]);
+
+  const selectedOwnerOption = useMemo(
+    () => userList.find((u) => String(u.value) === String(selectedOwnerUserId)) || null,
+    [userList, selectedOwnerUserId]
+  );
+
+  const renderUserOptionLabel = (u) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Avatar src={u.imageUrl} size={24}>
+        {(u.name || "U").charAt(0)}
+      </Avatar>
+      <div style={{ minWidth: 0, lineHeight: 1.15 }}>
+        <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {u.name || "User"}
+        </div>
+        <div style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {u.email || `ID: ${u.id}`}
+        </div>
+      </div>
+    </div>
+  );
+
   const fetchUserOptions = async (search) => {
+    const keyword = String(search || "").trim();
+    if (keyword.length < 2) {
+      setUserList([]);
+      return;
+    }
+
     setFetchingUsers(true);
     try {
       const res = await axios.get(`${API}/admin/users`, {
-        params: { q: search, limit: 20 },
+        params: { q: keyword, limit: 20 },
         headers: authHeaders,
       });
       const users = res.data?.users || [];
-      setUserList(users.map((u) => ({ label: `${u.name} (${u.email})`, value: u.id })));
+      setUserList(
+        users.map((u) => ({
+          value: u.id,
+          name: u.name || "User",
+          email: u.email || "",
+          imageUrl: u.imageUrl || "",
+          label: renderUserOptionLabel(u),
+        }))
+      );
     } catch (e) {
       console.error(e);
     } finally {
@@ -92,7 +143,7 @@ export default function MobileBankingId() {
     try {
       setLoading(true);
       const res = await axios.get(
-        `${API}/mobile-banking/${mobileBankingId}/wallets`,
+        `${API}/mobile-banking/${mobileBankingId}/wallets?includeNumbers=1`,
         { headers: authHeaders }
       );
       setProvider(res.data?.data?.provider || null);
@@ -144,16 +195,15 @@ export default function MobileBankingId() {
 
   const onCreateWallet = async (values) => {
     try {
+      const nextVisibility = values.visibility || visibilityType || "public";
       await axios.post(
         `${API}/mobile-banking/${mobileBankingId}/wallets`,
         {
           name: values.name?.trim(),
-          visibility: values.visibility,
-          note: values.note?.trim() || null,
-          sortOrder: values.sortOrder ?? 0,
+          visibility: nextVisibility,
           isActive: values.isActive ?? true,
           imgUrl: values.imgUrl?.trim() || null, // ✅ logo url send
-          ownerUserId: values.visibility === "private" ? values.ownerUserId : null,
+          ownerUserId: nextVisibility === "private" ? values.ownerUserId : null,
         },
         { headers: authHeaders }
       );
@@ -161,6 +211,8 @@ export default function MobileBankingId() {
       message.success("Wallet created");
       createWalletForm.resetFields();
       setWalletLogoUrl(""); // reset preview
+      setVisibilityType("public");
+      createWalletForm.setFieldsValue({ visibility: "public", ownerUserId: undefined });
       loadWallets();
     } catch (e) {
       console.error(e);
@@ -169,11 +221,19 @@ export default function MobileBankingId() {
   };
 
   const onDeleteWallet = async (walletId) => {
+    const prevWallets = wallets;
+    setWallets((prev) => prev.filter((w) => String(w.id) !== String(walletId)));
+
     try {
       await axios.delete(`${API}/wallets/${walletId}`, { headers: authHeaders });
       message.success("Wallet deleted");
-      loadWallets();
+      if (String(activeWallet?.id || "") === String(walletId)) {
+        setNumbersOpen(false);
+        setActiveWallet(null);
+        setNumbers([]);
+      }
     } catch (e) {
+      setWallets(prevWallets);
       console.error(e);
       message.error(e?.response?.data?.message || "Delete failed");
     }
@@ -186,7 +246,8 @@ export default function MobileBankingId() {
     await loadNumbers(wallet.id);
   };
 
-  const loadNumbers = async (walletId) => {
+  const loadNumbers = async (walletId, options = {}) => {
+    const { silent = false } = options;
     try {
       setNumbersLoading(true);
       const res = await axios.get(`${API}/wallets/${walletId}/numbers`, {
@@ -195,7 +256,9 @@ export default function MobileBankingId() {
       setNumbers(safeArr(res.data?.data?.numbers));
     } catch (e) {
       console.error(e);
-      message.error(e?.response?.data?.message || "Numbers load failed");
+      if (!silent) {
+        message.error(e?.response?.data?.message || "Numbers load failed");
+      }
     } finally {
       setNumbersLoading(false);
     }
@@ -224,151 +287,346 @@ export default function MobileBankingId() {
   };
 
   const onDeleteNumber = async (id) => {
+    const idKey = String(id);
+    if (deletingNumberIds.includes(idKey)) return;
+    setDeletingNumberIds((prev) => [...prev, idKey]);
+
     try {
       await axios.delete(`${API}/wallet-numbers/${id}`, { headers: authHeaders });
+      setNumbers((prev) => prev.filter((n) => String(n.id) !== idKey));
       message.success("Number deleted");
-      loadNumbers(activeWallet.id);
+
+      if (activeWallet?.id) {
+        await loadNumbers(activeWallet.id, { silent: true });
+      }
     } catch (e) {
+      const status = Number(e?.response?.status || 0);
+      if (status === 404) {
+        setNumbers((prev) => prev.filter((n) => String(n.id) !== idKey));
+        message.success("Number deleted");
+        return;
+      }
       console.error(e);
       message.error(e?.response?.data?.message || "Delete number failed");
+    } finally {
+      setDeletingNumberIds((prev) => prev.filter((x) => x !== idKey));
     }
   };
 
-  const walletColumns = useMemo(
-    () => [
-      { title: "ID", dataIndex: "id", width: 80 },
-      {
-        title: "Logo",
-        dataIndex: "imgUrl",
-        width: 90,
-        render: (url) =>
-          url ? (
-            <img
-              src={url}
-              alt="logo"
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                border: "1px solid #eee",
-                objectFit: "cover",
+  const openAssignedUser = (wallet) => {
+    const uid = Number(wallet?.ownerUser?.id || wallet?.ownerUserId || 0);
+    if (!uid) {
+      message.warning("No assigned user found for this private wallet.");
+      return;
+    }
+    navigate(`/users/${uid}`);
+  };
+
+  const getAssignedUserMeta = (wallet) => {
+    const name = wallet?.ownerUser?.name || wallet?.ownerEmail || `User #${wallet?.ownerUserId || "-"}`;
+    const imageUrl = wallet?.ownerUser?.imageUrl || "";
+    return { name, imageUrl };
+  };
+
+  const walletCards = useMemo(
+    () => {
+      const sortedWallets = [...wallets].sort((a, b) => {
+        const aVis = String(a?.visibility || "").toLowerCase();
+        const bVis = String(b?.visibility || "").toLowerCase();
+        const aPublic = aVis === "public" ? 0 : 1;
+        const bPublic = bVis === "public" ? 0 : 1;
+        if (aPublic !== bPublic) return aPublic - bPublic;
+        return Number(b?.id || 0) - Number(a?.id || 0);
+      });
+
+      return sortedWallets.map((w) => {
+        const walletNumbers = safeArr(w?.numbers);
+        const numbersCount = Number(w?.numbersCount || w?.numberCount || walletNumbers.length || 0);
+        const visibility = String(w?.visibility || "").toLowerCase();
+        const isPublic = visibility === "public";
+        return (
+          <Card
+            key={w.id}
+            hoverable
+            style={{
+              borderRadius: 12,
+              borderColor: isPublic ? "#22c55e" : "#cbd5e1",
+              borderWidth: 1,
+              boxShadow: isPublic
+                ? "inset 0 0 0 1px #86efac"
+                : "inset 0 0 0 1px #e2e8f0",
+              background: isPublic
+                ? "linear-gradient(180deg, #f0fdf4 0%, #ffffff 72%)"
+                : "#ffffff",
+            }}
+            bodyStyle={{ padding: 12 }}
+            onClick={() => openNumbersModal(w)}
+          >
+            {isPublic ? (
+              <div style={{ marginBottom: 6 }}>
+                <Tag
+                  style={{
+                    marginRight: 0,
+                    borderColor: "#86efac",
+                    background: "#dcfce7",
+                    color: "#166534",
+                    fontWeight: 700,
+                  }}
+                >
+                  PUBLIC
+                </Tag>
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {w.imgUrl ? (
+                <img
+                  src={w.imgUrl}
+                  alt={w.name}
+                  style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid #eee", objectFit: "cover" }}
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    border: "1px solid #e5e7eb",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "#64748b",
+                    fontWeight: 700,
+                  }}
+                >
+                  W
+                </div>
+              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {w.name}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <Tag color={visibility === "private" ? "blue" : "green"} style={{ marginRight: 6 }}>
+                    {visibility === "private" ? "Private" : "Public"}
+                  </Tag>
+                  <Tag color={w.isActive ? "success" : "default"}>{w.isActive ? "Active" : "Inactive"}</Tag>
+                </div>
+              </div>
+            </div>
+            {visibility === "private" ? (
+              <div style={{ marginTop: 8, fontSize: 12 }}>
+                Assigned:{" "}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Avatar src={getAssignedUserMeta(w).imageUrl} size={20}>
+                    {String(getAssignedUserMeta(w).name || "U").charAt(0).toUpperCase()}
+                  </Avatar>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, height: "auto" }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openAssignedUser(w);
+                    }}
+                  >
+                    {getAssignedUserMeta(w).name}
+                  </Button>
+                </span>
+              </div>
+            ) : null}
+            <div style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>Numbers: {numbersCount}</div>
+            {walletNumbers.length > 0 ? (
+              <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {walletNumbers.slice(0, 2).map((n) => (
+                  <Tag key={n.id} style={{ marginRight: 0 }}>
+                    {n.number}
+                  </Tag>
+                ))}
+                {walletNumbers.length > 2 ? (
+                  <Tag style={{ marginRight: 0, color: "#64748b" }}>+{walletNumbers.length - 2} more</Tag>
+                ) : null}
+              </div>
+            ) : (
+              <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8" }}>No number added</div>
+            )}
+            <Button
+              size="small"
+              style={{ marginTop: 10 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                openNumbersModal(w);
               }}
-              onError={(e) => (e.currentTarget.style.display = "none")}
-            />
-          ) : (
-            <span style={{ opacity: 0.6 }}>-</span>
-          ),
-      },
-      { title: "Wallet Name", dataIndex: "name" },
-      {
-        title: "Visibility",
-        dataIndex: "visibility",
-        width: 140,
-        render: (v) =>
-          v === "public" ? <Tag color="green">public</Tag> : <Tag color="blue">private</Tag>,
-      },
-      {
-        title: "Active",
-        dataIndex: "isActive",
-        width: 100,
-        render: (v) => (v ? "Yes" : "No"),
-      },
-      {
-        title: "Actions",
-        width: 320,
-        render: (_, row) => (
-          <Space wrap>
-            <Button type="primary" onClick={() => openNumbersModal(row)}>
-              Manage Numbers
-            </Button>
-            <Popconfirm
-              title="Delete this wallet?"
-              okText="Delete"
-              cancelText="Cancel"
-              onConfirm={() => onDeleteWallet(row.id)}
             >
-              <Button danger>Delete</Button>
-            </Popconfirm>
-          </Space>
-        ),
-      },
-    ],
-    [wallets, activeWallet]
+              View Details
+            </Button>
+          </Card>
+        );
+      });
+    },
+    [wallets]
   );
 
   const numberColumns = useMemo(
     () => [
-      { title: "ID", dataIndex: "id", width: 80 },
-      { title: "Number", dataIndex: "number" },
-      { title: "Label", dataIndex: "label", render: (v) => v || "-" },
-      { title: "Active", dataIndex: "isActive", width: 100, render: (v) => (v ? "Yes" : "No") },
+      { title: "ID", dataIndex: "id", width: 80, responsive: ["md"] },
+      {
+        title: "Number",
+        dataIndex: "number",
+        render: (v) => (
+          <span
+            style={{
+              display: "inline-block",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              whiteSpace: "normal",
+              wordBreak: "break-all",
+              lineHeight: 1.35,
+            }}
+          >
+            {v || "-"}
+          </span>
+        ),
+      },
+      { title: "Label", dataIndex: "label", render: (v) => v || "-", responsive: ["sm"] },
+      { title: "Active", dataIndex: "isActive", width: 100, render: (v) => (v ? "Yes" : "No"), responsive: ["sm"] },
       {
         title: "Actions",
-        width: 140,
+        width: screens.xs ? 110 : 140,
         render: (_, row) => (
           <Popconfirm
             title="Delete this number?"
             okText="Delete"
             cancelText="Cancel"
+            disabled={deletingNumberIds.includes(String(row.id))}
             onConfirm={() => onDeleteNumber(row.id)}
           >
-            <Button danger size="small">
-              Delete
+            <Button danger size="small" loading={deletingNumberIds.includes(String(row.id))}>
+              {screens.xs ? "Del" : "Delete"}
             </Button>
           </Popconfirm>
         ),
       },
     ],
-    [numbers, activeWallet]
+    [screens.xs, deletingNumberIds]
   );
 
   return (
-    <div style={{ maxWidth: 1150, margin: "0 auto", padding: 16 }}>
-      <Card style={{ borderRadius: 14 }}>
+    <div
+      style={{
+        maxWidth: screens.xs ? "100%" : 1150,
+        margin: screens.xs ? "0 auto" : "0 auto",
+        padding: screens.xs ? 8 : 16,
+      }}
+    >
+      <Card
+        style={{
+          borderRadius: screens.xs ? 0 : 14,
+          borderColor: "#cbd5e1",
+          borderWidth: 1,
+        }}
+        bodyStyle={{ padding: screens.xs ? 10 : 24 }}
+      >
         <Space style={{ marginBottom: 12 }}>
-          <Button onClick={() => navigate(-1)}>Back</Button>
+          <Button onClick={() => navigate(-1)} >Back</Button>
           <Button onClick={loadWallets} loading={loading}>
             Refresh
           </Button>
         </Space>
 
-        <Title level={4} style={{ marginTop: 0 }}>
-          Wallet Manager
-        </Title>
-
-        <div style={{ marginBottom: 14 }}>
-          <Text>
-            Mobile Banking ID: <b>{mobileBankingId}</b>
-          </Text>
-
+        <Card
+          size="small"
+          style={{
+            marginBottom: 14,
+            borderRadius: 14,
+            borderColor: "#bfdbfe",
+            borderWidth: 1,
+            boxShadow: "inset 0 0 0 1px #dbeafe",
+            background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
+          }}
+        >
           {provider ? (
-            <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center" }}>
-              <img
-                src={provider.imgUrl}
-                alt="logo"
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 12,
-                  border: "1px solid #eee",
-                  objectFit: "cover",
-                }}
-                onError={(e) => (e.currentTarget.style.display = "none")}
-              />
-              <div>
-                <div style={{ fontWeight: 800 }}>{provider.name}</div>
-                <div style={{ opacity: 0.7 }}>Active: {provider.isActive ? "Yes" : "No"}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                {provider.imgUrl ? (
+                  <img
+                    src={provider.imgUrl}
+                    alt="logo"
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 14,
+                      border: "1px solid #bfdbfe",
+                      objectFit: "cover",
+                      background: "#fff",
+                    }}
+                    onError={(e) => (e.currentTarget.style.display = "none")}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 14,
+                      border: "1px solid #bfdbfe",
+                      background: "#fff",
+                      display: "grid",
+                      placeItems: "center",
+                      color: "#2563eb",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {(provider?.name || "M").slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>Mobile Banking</div>
+                  <div style={{ fontWeight: 800, fontSize: 18, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {provider.name}
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <Tag color={provider.isActive ? "success" : "default"} style={{ marginRight: 0 }}>
+                      {provider.isActive ? "Active" : "Inactive"}
+                    </Tag>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 12, color: "#475569" }}>
+                ID: <b>{mobileBankingId}</b>
               </div>
             </div>
           ) : (
-            <Text type="secondary" style={{ marginLeft: 8 }}>
-              Loading provider...
-            </Text>
+            <Text type="secondary">Loading provider...</Text>
           )}
+        </Card>
+
+        <div style={{ marginBottom: 16 }}>
+          <Title level={5} style={{ marginBottom: 8 }}>
+            Wallet Cards ({walletSummary.total})
+          </Title>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: 12,
+            }}
+          >
+            {walletCards}
+          </div>
         </div>
 
-        <Collapse
-          defaultActiveKey={["create"]}
+        <Card
+          size="small"
+          style={{
+            marginBottom: 12,
+            borderRadius: 12,
+            borderColor: "#cbd5e1",
+            borderWidth: 1,
+            boxShadow: "inset 0 0 0 1px #e2e8f0",
+            background: "#fcfdff",
+          }}
+        >
+          <Tabs
+          defaultActiveKey="create"
           items={[
             {
               key: "create",
@@ -381,14 +639,18 @@ export default function MobileBankingId() {
                   onValuesChange={(changed) => {
                     if (changed.visibility) setVisibilityType(changed.visibility);
                   }}
-                  initialValues={{ visibility: "public", isActive: true, sortOrder: 0, imgUrl: "" }}
+                  initialValues={{ visibility: "public", isActive: true, imgUrl: "" }}
                 >
+                  <Form.Item name="visibility" hidden>
+                    <Input />
+                  </Form.Item>
+
                   <Form.Item
                     label="Wallet Name"
                     name="name"
                     rules={[{ required: true, message: "Wallet name required" }]}
                   >
-                    <Input placeholder="e.g. bKash Personal, bKash Agent..." />
+                    <Input placeholder="e.g. Personal Wallet, Agent Wallet" />
                   </Form.Item>
 
                   {/* ✅ wallet logo upload */}
@@ -435,29 +697,49 @@ export default function MobileBankingId() {
                       ) : null}
                     </div>
 
-                    {/* hidden actual url value preview */}
-                    {walletLogoUrl ? (
-                      <div style={{ marginTop: 6 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          URL: {walletLogoUrl}
-                        </Text>
-                      </div>
-                    ) : null}
                   </Form.Item>
 
-                  <Form.Item label="Visibility" name="visibility" rules={[{ required: true }]}>
-                    <Select
-                      options={[
-                        { value: "public", label: "Public (everyone)" },
-                        { value: "private", label: "Private (single user)" },
+                  <Form.Item label="Wallet Type" required>
+                    <Tabs
+                      activeKey={visibilityType}
+                      onChange={(key) => {
+                        setVisibilityType(key);
+                        createWalletForm.setFieldsValue({ visibility: key, ownerUserId: undefined });
+                        if (key !== "private") setUserList([]);
+                      }}
+                      size="small"
+                      items={[
+                        { key: "public", label: "Public" },
+                        { key: "private", label: "Private" },
                       ]}
                     />
                   </Form.Item>
+
+                  <div style={{ marginTop: -8, marginBottom: 10 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Public wallets are visible to all users. Private wallets are visible only to the selected user.
+                    </Text>
+                  </div>
 
                   {visibilityType === "private" && (
                     <Form.Item
                       label="Assign User"
                       name="ownerUserId"
+                      extra={
+                        selectedOwnerOption ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <Avatar src={selectedOwnerOption.imageUrl} size={24}>
+                              {(selectedOwnerOption.name || "U").charAt(0)}
+                            </Avatar>
+                            <span>
+                              Selected: {selectedOwnerOption.name}
+                              {selectedOwnerOption.email ? ` (${selectedOwnerOption.email})` : ""}
+                            </span>
+                          </div>
+                        ) : (
+                          "Type at least 2 characters to search by name or email."
+                        )
+                      }
                       rules={[{ required: true, message: "Please select a user" }]}
                     >
                       <Select
@@ -467,17 +749,10 @@ export default function MobileBankingId() {
                         onSearch={handleSearchUser}
                         notFoundContent={fetchingUsers ? <Spin size="small" /> : null}
                         options={userList}
+                        optionLabelProp="label"
                       />
                     </Form.Item>
                   )}
-
-                  <Form.Item label="Note (optional)" name="note">
-                    <Input.TextArea rows={2} placeholder="Optional note/terms..." />
-                  </Form.Item>
-
-                  <Form.Item label="Sort Order" name="sortOrder">
-                    <InputNumber style={{ width: "100%" }} min={0} />
-                  </Form.Item>
 
                   <Form.Item label="Active" name="isActive" valuePropName="checked">
                     <Switch />
@@ -487,23 +762,12 @@ export default function MobileBankingId() {
                     Create Wallet
                   </Button>
                 </Form>
+                
               ),
             },
           ]}
-        />
-
-        <div style={{ marginTop: 16 }}>
-          <Title level={5} style={{ marginBottom: 10 }}>
-            Wallet List
-          </Title>
-          <Table
-            rowKey="id"
-            loading={loading}
-            columns={walletColumns}
-            dataSource={wallets}
-            pagination={{ pageSize: 10 }}
           />
-        </div>
+        </Card>
 
         <Modal
           title={activeWallet ? `Numbers: ${activeWallet.name}` : "Numbers"}
@@ -514,11 +778,72 @@ export default function MobileBankingId() {
             setNumbers([]);
           }}
           footer={null}
-          width={900}
+          width={screens.md ? 900 : "calc(100vw - 24px)"}
         >
           {activeWallet ? (
             <>
-              <Card style={{ borderRadius: 12, marginBottom: 12 }}>
+              <Card
+                size="small"
+                style={{
+                  borderRadius: 12,
+                  marginBottom: 12,
+                  background: "#fafcff",
+                  borderColor: "#cbd5e1",
+                  borderWidth: 1,
+                  boxShadow: "inset 0 0 0 1px #e2e8f0",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>{activeWallet.name}</div>
+                    <div style={{ marginTop: 4 }}>
+                      {activeWallet.visibility === "private" ? (
+                        <Tag color="blue">Private (single user)</Tag>
+                      ) : (
+                        <Tag color="green">Public (all users)</Tag>
+                      )}
+                      <Tag color={activeWallet.isActive ? "success" : "default"}>
+                        {activeWallet.isActive ? "Active" : "Inactive"}
+                      </Tag>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                      {activeWallet.visibility === "private" ? (
+                        <>
+                          Assigned User:{" "}
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, verticalAlign: "middle" }}>
+                            <Avatar src={getAssignedUserMeta(activeWallet).imageUrl} size={20}>
+                              {String(getAssignedUserMeta(activeWallet).name || "U").charAt(0).toUpperCase()}
+                            </Avatar>
+                            <Button
+                              type="link"
+                              size="small"
+                              style={{ padding: 0, height: "auto" }}
+                              onClick={() => openAssignedUser(activeWallet)}
+                            >
+                              {getAssignedUserMeta(activeWallet).name}
+                            </Button>
+                          </span>
+                        </>
+                      ) : (
+                        "Assigned User: Not required (public wallet)"
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ alignSelf: "center", fontSize: 12, color: "#666" }}>
+                    Current numbers: <b>{numbers.length}</b>
+                  </div>
+                </div>
+              </Card>
+
+              <Card
+                style={{
+                  borderRadius: 12,
+                  marginBottom: 12,
+                  borderColor: "#cbd5e1",
+                  borderWidth: 1,
+                  boxShadow: "inset 0 0 0 1px #e2e8f0",
+                }}
+              >
                 <Form layout="vertical" form={addNumberForm} initialValues={{ isActive: true }}>
                   <Form.Item label="Number" name="number" rules={[{ required: true, message: "Number required" }]}>
                     <Input placeholder="e.g. 01XXXXXXXXX" />
@@ -544,6 +869,8 @@ export default function MobileBankingId() {
                 columns={numberColumns}
                 dataSource={numbers}
                 pagination={{ pageSize: 8 }}
+                size={screens.xs ? "small" : "middle"}
+                scroll={screens.xs ? undefined : { x: 640 }}
               />
             </>
           ) : (

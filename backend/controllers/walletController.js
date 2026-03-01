@@ -20,18 +20,39 @@ exports.listWalletsByProvider = async (req, res) => {
     const provider = await MobileBanking.findByPk(mobileBankingId);
     if (!provider) return res.status(404).json({ success: false, message: "Mobile banking not found" });
 
+    const include = [
+      {
+        association: "owner",
+        attributes: ["id", "name", "email", "imageUrl"],
+        required: false,
+      },
+    ];
+
+    if (includeNumbers) {
+      include.push({
+        model: WalletNumber,
+        as: "numbers",
+        required: false,
+      });
+    }
+
     const wallets = await Wallet.findAll({
       where: { mobileBankingId: Number(mobileBankingId) },
-      include: includeNumbers
-        ? [{ model: WalletNumber, as: "numbers", required: false, where: { isActive: true } }]
-        : [],
+      include,
       order: [
         ["sortOrder", "ASC"],
         ["id", "DESC"],
       ],
     });
+    const normalizedWallets = wallets.map((row) => {
+      const json = row.toJSON();
+      return {
+        ...json,
+        ownerUser: json.owner || null,
+      };
+    });
 
-    return res.json({ success: true, data: { provider, wallets } });
+    return res.json({ success: true, data: { provider, wallets: normalizedWallets } });
   } catch (err) {
     console.error("listWalletsByProvider error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -101,7 +122,7 @@ exports.createWallet = async (req, res) => {
 exports.updateWallet = async (req, res) => {
   try {
     const { walletId } = req.params;
-    const { name, visibility, note, sortOrder, isActive } = req.body || {};
+    const { name, visibility, note, sortOrder, isActive, imgUrl } = req.body || {};
 
     const row = await Wallet.findByPk(walletId);
     if (!row) return res.status(404).json({ success: false, message: "Wallet not found" });
@@ -144,6 +165,9 @@ exports.updateWallet = async (req, res) => {
     if (note !== undefined) row.note = isNonEmpty(note) ? note.trim() : null;
     if (sortOrder !== undefined) row.sortOrder = clampInt(sortOrder, 0);
     if (typeof isActive === "boolean") row.isActive = isActive;
+    if (imgUrl !== undefined && visibility === undefined) {
+      row.imgUrl = isNonEmpty(imgUrl) ? imgUrl.trim() : null;
+    }
 
     await row.save();
     return res.json({ success: true, data: row });

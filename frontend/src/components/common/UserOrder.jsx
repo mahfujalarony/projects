@@ -246,6 +246,12 @@ const getToken = () => {
               Payment: {r.paymentMethod} •{" "}
               Paid
             </div>
+            {r.trackingNumber ? (
+              <div className="mt-1 text-xs text-indigo-700">
+                Tracking: <b>{r.trackingNumber}</b>
+                {r.trackingNote ? <span className="text-gray-600"> ({r.trackingNote})</span> : null}
+              </div>
+            ) : null}
 
             <div className="mt-1 text-xs text-gray-500">
               Ordered: {new Date(r.createdAt).toLocaleString()}

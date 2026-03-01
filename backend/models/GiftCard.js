@@ -1,7 +1,6 @@
 // backend/models/GiftCard.js
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
-const User = require('./Authentication');
 
 const GiftCard = sequelize.define('GiftCard', {
   id: {
@@ -58,9 +57,5 @@ const GiftCard = sequelize.define('GiftCard', {
   tableName: 'gift_cards',
   timestamps: true,
 });
-
-// Associations
-GiftCard.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
-GiftCard.belongsTo(User, { foreignKey: 'claimedBy', as: 'claimer' });
 
 module.exports = GiftCard;

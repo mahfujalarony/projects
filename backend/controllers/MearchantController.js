@@ -6,7 +6,6 @@ const MerchentStore = require("../models/MerchentStore");
 const Authentication = require("../models/Authentication");
 const OrderItem = require("../models/Order");
 const Review = require("../models/Review");
-const productDailyStat = require("../models/ProductDailyStat");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -31,6 +30,49 @@ const upsertSoldBy = (soldBy, merchantId, qty) => {
   else arr.push({ merchantId: mid, qty: q });
 
   return arr;
+};
+
+const normalizeKeywordList = (value) => {
+  const input = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+
+  const seen = new Set();
+  const out = [];
+  for (const item of input) {
+    const k = String(item || "").trim().toLowerCase();
+    if (!k || k.length > 40 || seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+    if (out.length >= 10) break;
+  }
+  return out;
+};
+
+const suggestKeywordsFromProduct = (src = {}) => {
+  const candidates = [
+    src.name,
+    src.category,
+    src.subCategory,
+    ...(Array.isArray(src.keywords) ? src.keywords : []),
+  ];
+  const expanded = [];
+  for (const value of candidates) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+    expanded.push(raw);
+    expanded.push(
+      ...raw
+        .toLowerCase()
+        .replace(/[^a-z0-9\u0980-\u09ff\s-]/g, " ")
+        .replace(/[-_]+/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+    );
+  }
+  return normalizeKeywordList(expanded);
 };
 
 /**
@@ -149,6 +191,9 @@ exports.getMyMerchantProfile = async (req, res) => {
     const merchantJson = merchant.toJSON();
     merchantJson.averageRating = liveAverageRating;
     merchantJson.totalReviews = liveTotalReviews;
+    merchantJson.isSuspended = merchant.status === "approved" && merchant.isApproved && req.user?.role !== "merchant";
+    merchantJson.suspendMessage =
+      "Your merchant account has been suspended. If you want to restore your account access, please contact support. Your previous data can be recovered after verification.";
 
     return res.json({ success: true, data: { merchant: merchantJson } });
   } catch (e) {
@@ -165,9 +210,14 @@ exports.getMyMerchantProfile = async (req, res) => {
 // GET /api/merchant/admin-products?category=home-living&subCategory=laptop&page=1&limit=12&search=abc
 exports.getAdminProductsForMerchant = async (req, res) => {
   try {
+    const merchantId = req.userId || req.user?.id || getAuthUserId(req);
+    if (!merchantId) return res.status(401).json({ message: "Unauthorized" });
+
     const {
       category = "",
       subCategory = "",
+      categoryScopes = "",
+      subCategoryScopes = "",
       page = 1,
       limit = 12,
       search = "",
@@ -185,13 +235,34 @@ exports.getAdminProductsForMerchant = async (req, res) => {
     andConditions.push({ stock: { [Op.gt]: 0 } });
 
     // ✅ category normalize compare
-    if (category && category.trim()) {
+    const categoryScopeList = String(categoryScopes || "")
+      .split(",")
+      .map((x) => normInput(x))
+      .filter(Boolean);
+    const uniqueCategoryScopes = [...new Set(categoryScopeList)];
+
+    if (uniqueCategoryScopes.length) {
+      andConditions.push({
+        [Op.or]: [
+          W(normDbExpr("category"), { [Op.in]: uniqueCategoryScopes }),
+          W(normDbExpr("subCategory"), { [Op.in]: uniqueCategoryScopes }),
+        ],
+      });
+    } else if (category && category.trim()) {
       const norm = normInput(category);
       andConditions.push(W(normDbExpr("category"), norm));
     }
 
     // ✅ subCategory normalize compare
-    if (subCategory && subCategory.trim()) {
+    const subCategoryScopeList = String(subCategoryScopes || "")
+      .split(",")
+      .map((x) => normInput(x))
+      .filter(Boolean);
+    const uniqueSubCategoryScopes = [...new Set(subCategoryScopeList)];
+
+    if (uniqueSubCategoryScopes.length) {
+      andConditions.push(W(normDbExpr("subCategory"), { [Op.in]: uniqueSubCategoryScopes }));
+    } else if (subCategory && subCategory.trim()) {
       const norm = normInput(subCategory);
       andConditions.push(W(normDbExpr("subCategory"), norm));
     }
@@ -223,8 +294,33 @@ exports.getAdminProductsForMerchant = async (req, res) => {
       offset,
     });
 
+    const productIds = rows.map((p) => Number(p.id)).filter(Boolean);
+    let storeQtyMap = new Map();
+    if (productIds.length) {
+      const storeRows = await MerchentStore.findAll({
+        where: {
+          merchantId,
+          productId: productIds,
+        },
+        attributes: ["productId", "stock"],
+        raw: true,
+      });
+
+      storeQtyMap = new Map(
+        storeRows.map((row) => [Number(row.productId), Number(row.stock || 0)])
+      );
+    }
+
+    const data = rows.map((row) => {
+      const json = row.toJSON();
+      return {
+        ...json,
+        merchantStoreQty: Number(storeQtyMap.get(Number(row.id)) || 0),
+      };
+    });
+
     return res.json({
-      data: rows,
+      data,
       meta: {
         total: count,
         page: pageNum,
@@ -355,6 +451,9 @@ exports.pickFromAdminToMerchantStore = async (req, res) => {
       existing.category = product.category;
       existing.subCategory = product.subCategory; // ✅ keep sync
       existing.images = product.images;
+      if (!Array.isArray(existing.keywords) || existing.keywords.length === 0) {
+        existing.keywords = suggestKeywordsFromProduct(product);
+      }
 
       await existing.save({ transaction: t });
     } else {
@@ -370,6 +469,7 @@ exports.pickFromAdminToMerchantStore = async (req, res) => {
           category: product.category,
           subCategory: product.subCategory, // ✅ add
           images: product.images,
+          keywords: suggestKeywordsFromProduct(product),
         },
         { transaction: t }
       );
@@ -420,6 +520,7 @@ exports.getMyStore = async (req, res) => {
         W(fn("LOWER", col("name")), { [Op.like]: `%${s}%` }),
         W(fn("LOWER", col("category")), { [Op.like]: `%${s}%` }),
         W(fn("LOWER", col("subCategory")), { [Op.like]: `%${s}%` }),
+        W(sequelize.literal("LOWER(CAST(`keywords` AS CHAR))"), { [Op.like]: `%${s}%` }),
         ...(Number.isNaN(Number(s)) ? [] : [{ productId: Number(s) }]),
       ];
     }
@@ -452,7 +553,7 @@ exports.updateMyStoreProduct = async (req, res) => {
     if (!merchantId) return res.status(401).json({ message: "Unauthorized" });
 
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, keywords } = req.body || {};
 
     const product = await MerchentStore.findOne({ where: { id, merchantId } });
     if (!product) {
@@ -461,6 +562,12 @@ exports.updateMyStoreProduct = async (req, res) => {
 
     if (name !== undefined) product.name = name;
     if (description !== undefined) product.description = description;
+    if (keywords !== undefined) {
+      if (Array.isArray(keywords) && keywords.length > 10) {
+        return res.status(400).json({ message: "Maximum 10 keywords allowed" });
+      }
+      product.keywords = normalizeKeywordList(keywords);
+    }
 
     await product.save();
 
@@ -600,6 +707,7 @@ exports.getMerchantDashboardOverview = async (req, res) => {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     const sevenDaysStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    const sumAmountExpr = sequelize.literal("COALESCE(SUM(price * quantity), 0)");
 
     const [
       merchantUser,
@@ -614,8 +722,8 @@ exports.getMerchantDashboardOverview = async (req, res) => {
       cancelledOrders,
       todayOrders,
       todayDeliveredOrders,
-      todaySalesRaw,
-      totalEarningsRaw,
+      todaySalesSum,
+      totalEarningsSum,
       recentOrdersRaw,
       last7OrdersRaw,
       topProductsRaw,
@@ -640,21 +748,21 @@ exports.getMerchantDashboardOverview = async (req, res) => {
           createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
         },
       }),
-      OrderItem.findAll({
+      OrderItem.findOne({
+        attributes: [[sumAmountExpr, "amount"]],
         where: {
           matchMerchantId: merchantId,
           status: { [Op.ne]: "cancelled" },
           createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
         },
-        attributes: [[sequelize.fn("SUM", sequelize.literal("price * quantity")), "total"]],
         raw: true,
       }),
-      OrderItem.findAll({
+      OrderItem.findOne({
+        attributes: [[sumAmountExpr, "amount"]],
         where: {
           matchMerchantId: merchantId,
           status: "delivered",
         },
-        attributes: [[sequelize.fn("SUM", sequelize.literal("price * quantity")), "total"]],
         raw: true,
       }),
       OrderItem.findAll({
@@ -711,7 +819,7 @@ exports.getMerchantDashboardOverview = async (req, res) => {
       success: true,
       data: {
         balance: Number(merchantUser?.balance || 0),
-        totalEarnings: Number(totalEarningsRaw?.[0]?.total || 0),
+        totalEarnings: Number(totalEarningsSum?.amount || 0),
         products: {
           total: Number(totalProducts || 0),
           lowStock: Number(lowStockProducts || 0),
@@ -728,7 +836,7 @@ exports.getMerchantDashboardOverview = async (req, res) => {
         today: {
           orders: Number(todayOrders || 0),
           deliveredOrders: Number(todayDeliveredOrders || 0),
-          sales: Number(todaySalesRaw?.[0]?.total || 0),
+          sales: Number(todaySalesSum?.amount || 0),
         },
         last7Days: {
           sales: Number(totalSales || 0),
@@ -830,7 +938,7 @@ exports.getMerchantStorefront = async (req, res) => {
       ],
     });
 
-    if (userById) {
+    if (userById?.merchantProfile) {
       merchantUserId = Number(userById.id);
       profileById = userById.merchantProfile || null;
     } else {

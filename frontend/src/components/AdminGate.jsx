@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { Spin } from "antd";
 import { API_BASE_URL } from "../config/env";
 
 const API_BASE = API_BASE_URL;
@@ -13,7 +12,7 @@ const getAuth = () => {
   }
 };
 
-const AdminGate = ({ fallbackTo = "/login", pollMs = 8000 }) => {
+const AdminGate = ({ fallbackTo = "/login" }) => {
   const location = useLocation();
   const auth = getAuth();
   const token = auth?.token;
@@ -51,9 +50,6 @@ const AdminGate = ({ fallbackTo = "/login", pollMs = 8000 }) => {
 
       const role = user?.role;
 
-      console.log("ME response json:", json);
-      console.log("Resolved role:", role);
-
       setIsAdmin(role === "admin");
       setLoading(false);
 
@@ -80,30 +76,22 @@ const AdminGate = ({ fallbackTo = "/login", pollMs = 8000 }) => {
 
   // ✅ polling (realtime-ish)
   useEffect(() => {
-    if (!pollMs || pollMs < 3000) return;
     if (!token) return;
-
-    const t = setInterval(() => {
-      fetchMe();
-    }, pollMs);
-
-    return () => clearInterval(t);
-  }, [pollMs, token, fetchMe]);
+    const onFocus = () => fetchMe();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [token, fetchMe]);
 
   if (!token) {
     return <Navigate to={fallbackTo} replace state={{ from: location }} />;
   }
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Spin />
-      </div>
-    );
+    return null;
   }
 
   if (!isAdmin) {
-    return <Navigate to="/403" replace state={{ from: location }} />;
+    return <Navigate to="/404" replace state={{ from: location }} />;
   }
 
   return <Outlet />;

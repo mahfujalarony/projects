@@ -20,14 +20,14 @@ import { PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import { API_BASE_URL } from "../../../config/env";
 import { UPLOAD_BASE_URL } from "../../../config/env";
 import { useSelector } from "react-redux";
+import ReactQuill from "react-quill-new";
+import "react-quill-new/dist/quill.snow.css";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const UPLOAD_ENDPOINT = `${UPLOAD_BASE_URL}/upload/image`;
 
 const getFullImageUrl = (imgPath) => {
-  if (!imgPath) return "/placeholder-product.jpg";
-  const cleanPath = String(imgPath).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (cleanPath.startsWith("http")) return cleanPath;
-  return `${API_BASE_URL}/${cleanPath}`;
+  return normalizeImageUrl(imgPath) || "/placeholder-product.jpg";
 };
 
 const uploadImages = async (files = []) => {
@@ -67,6 +67,18 @@ const AdminOffers = () => {
   const [keepExisting, setKeepExisting] = useState(true); // edit mode: keep current image by default
 
   const [form] = Form.useForm();
+  const quillModules = useMemo(
+    () => ({
+      toolbar: [
+        [{ header: [1, 2, false] }],
+        ["bold", "italic", "underline"],
+        [{ list: "ordered" }, { list: "bullet" }],
+        ["link"],
+        ["clean"],
+      ],
+    }),
+    []
+  );
   const token = useMemo(() => {
     if (reduxToken) return reduxToken;
     try {
@@ -122,7 +134,7 @@ const AdminOffers = () => {
     setOpen(true);
     form.setFieldsValue({
       title: "",
-      subtitle: "",
+      description: "",
       type: "carousel",
       sortOrder: 0,
       isActive: true,
@@ -139,7 +151,7 @@ const AdminOffers = () => {
 
     form.setFieldsValue({
       title: row.title || "",
-      subtitle: row.subtitle || "",
+      description: row.description || "",
       type: row.type || "carousel",
       sortOrder: Number(row.sortOrder || 0),
       isActive: !!row.isActive,
@@ -196,7 +208,8 @@ const AdminOffers = () => {
 
       const payload = {
         title: values.title?.trim(),
-        subtitle: values.subtitle?.trim() || null,
+        subtitle: null,
+        description: values.description || null,
         imageUrl: finalImageUrl,
         type: values.type || "carousel",
         sortOrder: Number(values.sortOrder || 0),
@@ -279,7 +292,17 @@ const AdminOffers = () => {
       {
         title: "Title",
         dataIndex: "title",
-        render: (v) => <span className="font-semibold">{v}</span>,
+        render: (v, row) => (
+          <div>
+            <div className="font-semibold">{v}</div>
+            {row?.description ? (
+              <div
+                className="text-xs text-gray-500 line-clamp-2 mt-1"
+                dangerouslySetInnerHTML={{ __html: row.description }}
+              />
+            ) : null}
+          </div>
+        ),
       },
       {
         title: "Type",
@@ -330,14 +353,81 @@ const AdminOffers = () => {
         </Button>
       </div>
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={offers}
-        loading={loading}
-        bordered
-        pagination={{ pageSize: 10 }}
-      />
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          Array.from({ length: 3 }).map((_, idx) => (
+            <div key={idx} className="rounded-xl border bg-white p-3">
+              <Skeleton active avatar paragraph={{ rows: 2 }} />
+            </div>
+          ))
+        ) : offers.length === 0 ? (
+          <div className="rounded-xl border bg-white p-4 text-sm text-gray-500">No offers found</div>
+        ) : (
+          offers.map((row) => (
+            <div key={row.id} className="rounded-xl border bg-white p-3 shadow-sm">
+              <div className="flex gap-3">
+                <div className="shrink-0">
+                  {row.imageUrl ? (
+                    <Image
+                      src={getFullImageUrl(row.imageUrl)}
+                      width={92}
+                      height={64}
+                      style={{ objectFit: "cover", borderRadius: 8 }}
+                      placeholder={<Skeleton.Image active style={{ width: 92, height: 64 }} />}
+                    />
+                  ) : (
+                    <div className="w-[92px] h-[64px] rounded-md bg-gray-100 border" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-sm text-gray-800 line-clamp-2">{row.title}</div>
+                    <Tag color={row.isActive ? "green" : "red"} className="m-0">
+                      {row.isActive ? "Active" : "Inactive"}
+                    </Tag>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Tag color="blue" className="m-0">
+                      {String(row.type || "").toUpperCase()}
+                    </Tag>
+                    <Tag className="m-0">Order: {Number(row.sortOrder || 0)}</Tag>
+                  </div>
+                </div>
+              </div>
+
+              {row?.description ? (
+                <div
+                  className="mt-2 text-xs text-gray-500 line-clamp-3"
+                  dangerouslySetInnerHTML={{ __html: row.description }}
+                />
+              ) : null}
+
+              <div className="mt-3 flex gap-2">
+                <Button size="small" onClick={() => openEdit(row)} className="flex-1">
+                  Edit
+                </Button>
+                <Popconfirm title="Delete this offer?" onConfirm={() => onDelete(row.id)}>
+                  <Button danger size="small" className="flex-1">
+                    Delete
+                  </Button>
+                </Popconfirm>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden md:block">
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={offers}
+          loading={loading}
+          bordered
+          scroll={{ x: 920 }}
+          pagination={{ pageSize: 10, responsive: true }}
+        />
+      </div>
 
       <Modal
         open={open}
@@ -349,6 +439,8 @@ const AdminOffers = () => {
         okText={saving ? "Saving..." : "Save"}
         confirmLoading={saving}
         title={editing ? `Edit Offer #${editing.id}` : "Create Offer"}
+        width={720}
+        style={{ maxWidth: "calc(100vw - 24px)" }}
       >
         <Form layout="vertical" form={form}>
           <Form.Item
@@ -359,8 +451,8 @@ const AdminOffers = () => {
             <Input placeholder="Mega Discount" />
           </Form.Item>
 
-          <Form.Item name="subtitle" label="Subtitle">
-            <Input placeholder="Up to 50% off today" />
+          <Form.Item name="description" label="Description">
+            <ReactQuill theme="snow" modules={quillModules} value={form.getFieldValue("description") || ""} onChange={(v) => form.setFieldValue("description", v)} style={{ height: 180, marginBottom: 42 }} />
           </Form.Item>
 
           {/* Existing image preview (edit mode) */}

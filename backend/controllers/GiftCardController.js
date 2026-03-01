@@ -1,5 +1,4 @@
 // backend/controllers/giftCardController.js
-const { v4: uuidv4 } = require('uuid');
 const sequelize = require('../config/db');
 const GiftCard = require('../models/GiftCard');
 const User = require('../models/Authentication');

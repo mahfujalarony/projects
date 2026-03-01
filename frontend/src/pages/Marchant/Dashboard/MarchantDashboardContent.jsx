@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, Row, Col, Statistic, Table, Tag, Spin, Alert } from "antd";
+import { Card, Row, Col, Statistic, Table, Tag, Alert } from "antd";
 import {
   ShoppingOutlined,
   FileTextOutlined,
@@ -172,11 +172,7 @@ const MerchantDashboardContent = () => {
   ];
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Spin size="large" tip="Loading Dashboard..." />
-      </div>
-    );
+    return null;
   }
 
   return (

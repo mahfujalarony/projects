@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Modal } from "antd";
+import { Modal, Grid } from "antd";
 import { useNavigate } from "react-router-dom";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { API_BASE_URL } from "../../config/env";
 
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
@@ -10,9 +11,12 @@ export default function StoryViewer({
   onClose,
   stories = [],
   startIndex = 0,
-  durationMs = 4500,
+  durationMs = 9000,
 }) {
   const navigate = useNavigate();
+  const { useBreakpoint } = Grid;
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const safeStories = useMemo(() => (Array.isArray(stories) ? stories : []), [stories]);
   const totalStories = safeStories.length;
@@ -136,6 +140,10 @@ export default function StoryViewer({
 
   const handleTap = (e) => {
     if (shouldIgnoreTap(e.target)) return;
+    if (Number(activeStory?.productId || 0) > 0) {
+      onProductClick(e);
+      return;
+    }
 
     const rect = e.currentTarget.getBoundingClientRect();
     const clientX = e.touches?.[0]?.clientX ?? e.clientX;
@@ -154,6 +162,15 @@ export default function StoryViewer({
     navigate(`/saller/${mid}`);
   };
 
+  const onProductClick = (e) => {
+    e?.stopPropagation?.();
+    const pid = Number(activeStory?.productId || 0);
+    if (!pid) return;
+    fetch(`${API_BASE_URL}/api/track/view/${pid}`, { method: "POST" }).catch(() => {});
+    onClose?.();
+    navigate(`/products/${pid}`);
+  };
+
   // progress bars per slide
   const bars = Array.from({ length: Math.max(totalSlides, 1) }).map((_, i) => {
     const filled = i < slideIdx ? 1 : i > slideIdx ? 0 : progress;
@@ -168,26 +185,25 @@ export default function StoryViewer({
       onCancel={onClose}
       footer={null}
       centered
-      width="100%"
-      closable={false}
-      destroyOnClose
+      width={isMobile ? "100%" : 440}
+      closable={!isMobile}
+      closeIcon={<X size={18} />}
+      maskClosable
+      destroyOnHidden
       styles={{
         content: { padding: 0, background: "transparent", boxShadow: "none" },
-        body: { padding: 0, height: "100vh", overflow: "hidden" },
-        mask: { background: "rgba(0,0,0,0.95)", backdropFilter: "blur(15px)" },
+        body: { padding: 0, height: isMobile ? "100vh" : "auto", overflow: "hidden" },
+        mask: { background: "rgba(0,0,0,0)" },
       }}
-      style={{ top: 0, margin: 0, maxWidth: "100vw", padding: 0 }}
+      style={{
+        top: isMobile ? 0 : 18,
+        margin: 0,
+        maxWidth: isMobile ? "100vw" : "min(460px,calc(100vw - 24px))",
+        padding: isMobile ? 0 : 8,
+      }}
     >
       {/* ✅ Responsive outer container */}
-      <div className="w-full h-[100dvh] flex items-center justify-center relative">
-        
-        {/* Desktop Close Button (Outside) */}
-        <button 
-          onClick={onClose}
-          className="absolute top-6 right-6 z-[100] text-white/70 hover:text-white transition hidden md:flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md"
-        >
-          <X size={24} />
-        </button>
+      <div className={`w-full flex items-center justify-center relative ${isMobile ? "h-[100dvh]" : ""}`}>
 
         {/* Desktop Previous Arrow (Outside) */}
         {!isFirst && (
@@ -204,7 +220,14 @@ export default function StoryViewer({
         )}
 
         {/* ✅ Responsive frame */}
-        <div className="relative w-full h-full md:w-auto md:h-[85vh] md:aspect-[9/16] md:max-h-[900px] md:rounded-2xl overflow-hidden bg-black shadow-2xl ring-1 ring-white/10 mx-auto">
+        <div
+          className="relative overflow-hidden bg-black shadow-2xl ring-1 ring-white/10 mx-auto"
+          style={{
+            width: isMobile ? "100%" : "min(420px, 92vw)",
+            height: isMobile ? "100dvh" : "min(78vh, 760px)",
+            borderRadius: isMobile ? 0 : 16,
+          }}
+        >
           {/* bars + header */}
           <div className="absolute top-0 left-0 right-0 z-20 px-3 pt-[max(12px,env(safe-area-inset-top))] md:pt-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-12">
             <div className="flex gap-1.5 h-1">
@@ -244,6 +267,17 @@ export default function StoryViewer({
                   <div className="text-white/70 text-[10px] font-medium">{paused ? "Paused" : "Sponsored"}</div>
                 </div>
               </button>
+
+              {Number(activeStory?.productId || 0) > 0 ? (
+                <button
+                  type="button"
+                  onClick={onProductClick}
+                  className="rounded-full border border-white/40 bg-white/20 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/30"
+                  data-ignore-tap="true"
+                >
+                  View Product
+                </button>
+              ) : null}
 
               <button
                 type="button"

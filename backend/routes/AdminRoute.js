@@ -4,6 +4,8 @@ const router = express.Router();
 const {
   getMerchantRequests,
   approveMerchant,
+  suspendMerchant,
+  resumeMerchant,
   deleteAdminProduct,
   rejectMerchant,
   getAdminProducts,
@@ -20,6 +22,10 @@ const {
   getSettings,
   updateSettings,
 } = require("../controllers/settingController");
+const {
+  getOrphanImages,
+  deleteOrphanImages,
+} = require("../controllers/adminMediaCleanupController");
 
 // admin only
 const adminOnly = (req, res, next) => {
@@ -36,9 +42,11 @@ const protect = require("../middleware/Middleware");
 
 router.get("/products", protect, requireAdminOrSubAdminPermission(), getAdminProducts);
 router.get("/products/categories", protect, requireAdminOrSubAdminPermission(), getProductFilters);
-router.get("/merchants/requests", protect, requireAdminOrSubAdminPermission(), getMerchantRequests);
-router.patch("/merchants/:id/approve", protect, requireAdminOrSubAdminPermission(), approveMerchant);
-router.patch("/merchants/:id/reject", protect, requireAdminOrSubAdminPermission(), rejectMerchant);
+router.get("/merchants/requests", protect, requireAdminOrSubAdminPermission("manage_merchant"), getMerchantRequests);
+router.patch("/merchants/:id/approve", protect, requireAdminOrSubAdminPermission("manage_merchant"), approveMerchant);
+router.patch("/merchants/:id/reject", protect, requireAdminOrSubAdminPermission("manage_merchant"), rejectMerchant);
+router.patch("/merchants/:id/suspend", protect, requireAdminOrSubAdminPermission("manage_merchant"), suspendMerchant);
+router.patch("/merchants/:id/resume", protect, requireAdminOrSubAdminPermission("manage_merchant"), resumeMerchant);
 router.delete("/products/:id", protect, requireAdminOrSubAdminPermission(), deleteAdminProduct);
 
 //  subadmin permission control
@@ -49,5 +57,7 @@ router.put("/subadmins/:id/permissions", protect, adminOnly, setSubAdminPermissi
 //  Settings Routes (GET public for checkout, PUT admin only)
 router.get("/settings", protect, requireAdminOrSubAdminPermission(), getSettings);
 router.put("/settings", protect, requireAdminOrSubAdminPermission(), updateSettings);
+router.get("/media/orphans", protect, requireAdminOrSubAdminPermission("manage_media_cleanup"), getOrphanImages);
+router.delete("/media/orphans", protect, requireAdminOrSubAdminPermission("manage_media_cleanup"), deleteOrphanImages);
 
 module.exports = router;

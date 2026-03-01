@@ -40,6 +40,28 @@ const calcTrendingScore = (stat, product) => {
   );
 };
 
+const attachMerchantSummary = async (rows = []) => {
+  const source = Array.isArray(rows) ? rows : [];
+  if (!source.length) return [];
+
+  const baseRows = source.map((row) => (typeof row?.toJSON === "function" ? row.toJSON() : row));
+  const merchantIds = [...new Set(baseRows.map((r) => Number(r?.merchantId)).filter((id) => Number.isFinite(id) && id > 0))];
+
+  if (!merchantIds.length) return baseRows.map((r) => ({ ...r, merchant: null }));
+
+  const merchants = await User.findAll({
+    where: { id: merchantIds },
+    attributes: ["id", "name", "imageUrl"],
+    raw: true,
+  });
+
+  const merchantMap = new Map(merchants.map((m) => [Number(m.id), m]));
+  return baseRows.map((r) => ({
+    ...r,
+    merchant: merchantMap.get(Number(r.merchantId)) || null,
+  }));
+};
+
 exports.getHomeSections = async (req, res) => {
   try {
     const days = Number(req.query.days || 7);
@@ -147,9 +169,10 @@ exports.getHomeSections = async (req, res) => {
       order: [["createdAt", "DESC"]],
     });
 
-    const flashRanked = flash
-      .map((p) => {
-        const j = p.toJSON();
+    const flashWithMerchant = await attachMerchantSummary(flash);
+
+    const flashRanked = flashWithMerchant
+      .map((j) => {
         const discountPct = calcDiscountPct(j.price, j.oldPrice);
         return { ...j, discountPct, images: cleanImages(j.images) };
       })

@@ -1,7 +1,6 @@
 // models/Story.js
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const Merchant = require("./MerchantProfile");
 
 const Story = sequelize.define(
   "Story",
@@ -14,6 +13,7 @@ const Story = sequelize.define(
     mediaUrls: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
 
     title: { type: DataTypes.STRING(120), allowNull: true },
+    productId: { type: DataTypes.INTEGER, allowNull: true },
 
     isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
 
@@ -22,9 +22,5 @@ const Story = sequelize.define(
   },
   { tableName: "Stories", timestamps: true }
 );
-
-// story -> merchant
-Story.belongsTo(Merchant, { as: "merchant", foreignKey: "merchantId" });
-Merchant.hasMany(Story, { as: "stories", foreignKey: "merchantId" });
 
 module.exports = Story;

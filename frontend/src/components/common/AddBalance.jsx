@@ -13,6 +13,7 @@ import {
   Tag,
   message,
 } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +25,11 @@ const { Title, Text } = Typography;
 const API = `${API_BASE_URL}/api`;
 const CHAT_API = CHAT_API_BASE_URL;
 const safeArr = (v) => (Array.isArray(v) ? v : []);
+const normalizeTransactionId = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
 
 export default function AddBalance() {
   const reduxToken = useSelector((state) => state.auth?.token);
@@ -43,7 +49,16 @@ export default function AddBalance() {
   const [selectedWallet, setSelectedWallet] = useState(null);
 
   // ✅ pending info
-  const [pendingInfo, setPendingInfo] = useState({ count: 0, totalAmount: 0, latest: null });
+  const [pendingInfo, setPendingInfo] = useState({
+    topupBlockedUntil: null,
+    isTopupBlocked: false,
+    blockedDaysLeft: 0,
+    count: 0,
+    totalAmount: 0,
+    latest: null,
+    rejectedCount: 0,
+    latestRejected: null,
+  });
   const [pendingLoading, setPendingLoading] = useState(false);
   const [supportMessage, setSupportMessage] = useState("");
   const [sendingSupport, setSendingSupport] = useState(false);
@@ -61,6 +76,7 @@ export default function AddBalance() {
   }, [reduxToken]);
 
   const authHeaders = useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
+  const blockedActive = Boolean(pendingInfo?.isTopupBlocked);
 
   const selectedProvider = useMemo(() => {
     return providers.find((p) => String(p.id) === String(providerId)) || null;
@@ -103,17 +119,46 @@ export default function AddBalance() {
   // ✅ pending check
   const loadPending = async () => {
     if (!token) {
-      setPendingInfo({ count: 0, totalAmount: 0, latest: null });
+      setPendingInfo({
+        topupBlockedUntil: null,
+        isTopupBlocked: false,
+        blockedDaysLeft: 0,
+        count: 0,
+        totalAmount: 0,
+        latest: null,
+        rejectedCount: 0,
+        latestRejected: null,
+      });
       return;
     }
     try {
       setPendingLoading(true);
       const res = await axios.get(`${API}/balance/topup/pending`, { headers: authHeaders });
-      setPendingInfo(res.data?.data || { count: 0, totalAmount: 0, latest: null });
+      setPendingInfo(
+        res.data?.data || {
+          topupBlockedUntil: null,
+          isTopupBlocked: false,
+          blockedDaysLeft: 0,
+          count: 0,
+          totalAmount: 0,
+          latest: null,
+          rejectedCount: 0,
+          latestRejected: null,
+        }
+      );
     } catch (e) {
       console.error(e);
       // pending check fail হলেও UI ভাঙাবে না
-      setPendingInfo({ count: 0, totalAmount: 0, latest: null });
+      setPendingInfo({
+        topupBlockedUntil: null,
+        isTopupBlocked: false,
+        blockedDaysLeft: 0,
+        count: 0,
+        totalAmount: 0,
+        latest: null,
+        rejectedCount: 0,
+        latestRejected: null,
+      });
     } finally {
       setPendingLoading(false);
     }
@@ -203,6 +248,13 @@ export default function AddBalance() {
   };
 
   const submit = async (values) => {
+    if (blockedActive) {
+      const untilText = pendingInfo?.topupBlockedUntil
+        ? new Date(pendingInfo.topupBlockedUntil).toLocaleString()
+        : "later";
+      message.error(`Topup is blocked until ${untilText}`);
+      return;
+    }
     if (!providerId || !walletId || !walletNumberId) {
       message.error("Please select Mobile Banking → Wallet → Number first");
       return;
@@ -210,6 +262,7 @@ export default function AddBalance() {
 
     try {
       setSubmitting(true);
+      const txId = normalizeTransactionId(values.transactionId);
       await axios.post(
         `${API}/balance/topup`,
         {
@@ -218,7 +271,7 @@ export default function AddBalance() {
           walletNumberId,
           senderNumber: values.senderNumber?.trim(),
           amount: values.amount,
-          transactionId: values.transactionId?.trim(),
+          transactionId: txId,
         },
         { headers: authHeaders }
       );
@@ -231,7 +284,14 @@ export default function AddBalance() {
       loadPending();
     } catch (e) {
       console.error(e);
-      message.error(e?.response?.data?.message || "Submit failed");
+      if (Number(e?.response?.status) === 409) {
+        message.error(
+          e?.response?.data?.message ||
+            "This transaction ID is already used in pending/approved request. Rejected one can be resubmitted."
+        );
+      } else {
+        message.error(e?.response?.data?.message || "Submit failed");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -294,16 +354,47 @@ export default function AddBalance() {
   return (
     <div style={{ maxWidth: 1050, margin: "0 auto", padding: 16 }}>
       <Card style={{ borderRadius: 14 }}>
-        <Title level={4} style={{ marginTop: 0 }}>
-          Add Balance (Send Money)
-        </Title>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <Title level={4} style={{ marginTop: 0, marginBottom: 0 }}>
+            Add Balance (Send Money)
+          </Title>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={async () => {
+              await Promise.all([loadProviders(), loadPending()]);
+              if (providerId) await loadWallets(providerId);
+              message.success("Refreshed");
+            }}
+          >
+            Refresh
+          </Button>
+        </div>
 
         <Text type="secondary">
-          Send money to the mobile banking / wallet / receiving numbers set by Admin, then submit the info here.
+          Payment Submission Guide: 1) Select your Mobile Banking provider. 2) Select the appropriate Wallet. 3) Choose the receiving wallet number to which you sent the payment. 4) Enter your sender number (the number used to send the payment). 5) Enter the exact amount sent. 6) Enter the transaction ID received after payment. Please provide accurate information only; incorrect or misleading details may result in rejection of your request.
         </Text>
 
         {/* ✅ Pending Banner */}
         <div style={{ marginTop: 14 }}>
+          {blockedActive ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 10 }}
+              message={`Topup is blocked for ${Number(pendingInfo?.blockedDaysLeft || 0)} day(s)`}
+              description={
+                <div>
+                  You cannot submit balance topup now. Block ends at{" "}
+                  <b>
+                    {pendingInfo?.topupBlockedUntil
+                      ? new Date(pendingInfo.topupBlockedUntil).toLocaleString()
+                      : "-"}
+                  </b>
+                  .
+                </div>
+              }
+            />
+          ) : null}
           {pendingInfo?.count > 0 ? (
             <Alert
               type="warning"
@@ -330,11 +421,37 @@ export default function AddBalance() {
               message={pendingLoading ? "Checking pending payments..." : "No pending topup"}
             />
           )}
+          {pendingInfo?.latestRejected?.adminNote ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 10 }}
+              message={`Latest rejected reason${pendingInfo?.rejectedCount ? ` (${pendingInfo.rejectedCount} rejected)` : ""}`}
+              description={
+                <div>
+                  <div>
+                    TX: <b>{pendingInfo.latestRejected.transactionId}</b>, Amount:{" "}
+                    <b>{Number(pendingInfo.latestRejected.amount || 0).toFixed(2)}</b>
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    Reason: <b>{pendingInfo.latestRejected.adminNote}</b>
+                  </div>
+                </div>
+              }
+            />
+          ) : null}
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <Space wrap style={{ width: "100%" }}>
-            <div style={{ minWidth: 260 }}>
+        <div
+          style={{
+            marginTop: 16,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 12,
+            width: "100%",
+          }}
+        >
+            <div style={{ minWidth: 0, width: "100%" }}>
               <Text style={{ display: "block", marginBottom: 6 }}>Mobile Banking</Text>
               <Select
                 style={{ width: "100%" }}
@@ -347,7 +464,7 @@ export default function AddBalance() {
               />
             </div>
 
-            <div style={{ minWidth: 320 }}>
+            <div style={{ minWidth: 0, width: "100%" }}>
               <Text style={{ display: "block", marginBottom: 6 }}>Wallet</Text>
               <Select
                 style={{ width: "100%" }}
@@ -360,7 +477,6 @@ export default function AddBalance() {
                 allowClear
               />
             </div>
-          </Space>
         </div>
 
         {/* ✅ Selected logos preview */}
@@ -426,12 +542,12 @@ export default function AddBalance() {
                   <List.Item
                     style={{
                       display: "flex",
-                      gap: 12,
-                      alignItems: "center",
-                      justifyContent: "space-between",
+                      gap: 10,
+                      alignItems: "stretch",
+                      flexDirection: "column",
                     }}
                   >
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
                       <Button
                         type={active ? "primary" : "default"}
                         size="small"
@@ -448,11 +564,11 @@ export default function AddBalance() {
                       {active ? <Tag color="green">Use this</Tag> : null}
                     </div>
 
-                    <Space>
+                    <div>
                       <Button size="small" onClick={() => copyText(n.number)}>
                         Copy
                       </Button>
-                    </Space>
+                    </div>
                   </List.Item>
                 );
               }}
@@ -481,21 +597,46 @@ export default function AddBalance() {
             <Form.Item
               label="Transaction ID"
               name="transactionId"
-              rules={[{ required: true, message: "Transaction ID required" }]}
+              rules={[
+                { required: true, message: "Transaction ID required" },
+                {
+                  validator: (_, value) => {
+                    const txId = normalizeTransactionId(value);
+                    if (!txId) return Promise.reject(new Error("Transaction ID required"));
+                    if (txId.length < 6) return Promise.reject(new Error("Transaction ID too short"));
+                    if (txId.length > 120) return Promise.reject(new Error("Transaction ID too long"));
+                    return Promise.resolve();
+                  },
+                },
+              ]}
             >
-              <Input placeholder="e.g. 9F8A7B..." />
+              <Input
+                placeholder="e.g. 9F8A7B..."
+                onBlur={(e) => {
+                  const txId = normalizeTransactionId(e.target.value);
+                  form.setFieldValue("transactionId", txId);
+                }}
+              />
             </Form.Item>
 
             <Button
               type="primary"
               htmlType="submit"
               loading={submitting}
-              disabled={!providerId || !walletId || !walletNumberId}
+              disabled={blockedActive || !providerId || !walletId || !walletNumberId}
             >
               Submit
             </Button>
 
-            {!providerId || !walletId || !walletNumberId ? (
+            {blockedActive ? (
+              <div style={{ marginTop: 10 }}>
+                <Text type="danger">
+                  Your topup is temporarily blocked. Please try after block period ends.
+                </Text>
+              </div>
+            ) : null}
+
+            {!blockedActive && (!providerId || !walletId || !walletNumberId) ? (
               <div style={{ marginTop: 10 }}>
                 <Text type="secondary">You need to select Mobile Banking + Wallet + Receiving Number to submit.</Text>
               </div>

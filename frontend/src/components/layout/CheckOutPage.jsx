@@ -15,6 +15,7 @@ import {
   Popconfirm,
   Alert,
   Spin,
+  Grid,
 } from "antd";
 import { MinusOutlined, PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useSelector, useDispatch } from "react-redux";
@@ -23,6 +24,7 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config/env";
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 const API_BASE = API_BASE_URL;
 
@@ -42,6 +44,8 @@ const CheckoutPage = () => {
   const [balance, setBalance] = useState(0);
 
   const [form] = Form.useForm();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const hasAddress = addresses.length > 0;
 
@@ -284,12 +288,12 @@ const CheckoutPage = () => {
         <Text type="secondary">Cart empty</Text>
       ) : (
         <List
-          itemLayout="horizontal"
+          itemLayout={isMobile ? "vertical" : "horizontal"}
           dataSource={cartItems}
           renderItem={(item) => (
             <List.Item
               actions={[
-                <Space key="qtyctrl" size={4}>
+                <Space key="qtyctrl" size={4} wrap>
                   <Button
                     size="small"
                     icon={<MinusOutlined />}
@@ -343,7 +347,16 @@ const CheckoutPage = () => {
   );
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space
+      direction="vertical"
+      size="large"
+      style={{
+        width: "100%",
+        maxWidth: 980,
+        margin: "0 auto",
+        paddingInline: isMobile ? 12 : 16,
+      }}
+    >
       <Title level={3}>Checkout</Title>
 
       {cartSummary}
@@ -409,7 +422,7 @@ const CheckoutPage = () => {
               />
             )}
 
-            <Space style={{ marginTop: 10 }}>
+            <Space wrap style={{ marginTop: 10 }}>
               <Button onClick={fetchBalance} loading={balLoading}>
                 {balLoading ? "Refreshing..." : "Refresh Balance"}
               </Button>
@@ -424,7 +437,11 @@ const CheckoutPage = () => {
       <Card
         title="Delivery Address"
         extra={
-          <Button type="primary" onClick={() => setIsAddModalOpen(true)}>
+          <Button
+            type="primary"
+            size={isMobile ? "small" : "middle"}
+            onClick={() => setIsAddModalOpen(true)}
+          >
             + Add new
           </Button>
         }
@@ -445,10 +462,10 @@ const CheckoutPage = () => {
                   onClick={() => setSelectedAddress(addr.id)}
                   hoverable
                 >
-                  <Space align="start">
+                  <Space align="start" style={{ width: "100%" }}>
                     <Radio value={addr.id} />
-                    <Space direction="vertical" size={2}>
-                      <Space size="small">
+                    <Space direction="vertical" size={2} style={{ minWidth: 0, flex: 1 }}>
+                      <Space size="small" wrap>
                         <Text strong>{addr.label}</Text>
                         <Tag>{addr.city}</Tag>
                       </Space>
@@ -473,10 +490,11 @@ const CheckoutPage = () => {
         )}
       </Card>
 
-      <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+      <Space style={{ width: "100%", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
         <Button
           type="primary"
           size="large"
+          style={{ width: isMobile ? "100%" : "auto" }}
           onClick={handlePlaceOrder}
           loading={loading}
           disabled={loading || insufficient}
@@ -491,6 +509,7 @@ const CheckoutPage = () => {
         onOk={handleAddAddress}
         onCancel={() => setIsAddModalOpen(false)}
         okText="Save"
+        width={isMobile ? "92%" : 520}
       >
         <Form form={form} layout="vertical">
           <Form.Item label="Label" name="label">

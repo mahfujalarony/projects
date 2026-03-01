@@ -1,8 +1,6 @@
 // models/Review.js
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
-const User = require("../models/Authentication");
-const MerchentStore = require("../models/MerchentStore");
 
 const parseJsonArray = (value) => {
   const normalize = (arr) =>
@@ -63,12 +61,5 @@ const Review = sequelize.define(
     ],
   }
 );
-
-// associations
-Review.belongsTo(User, { foreignKey: "userId", as: "user" });
-User.hasMany(Review, { foreignKey: "userId", as: "reviews" });
-
-Review.belongsTo(MerchentStore, { foreignKey: "productId", as: "product" });
-MerchentStore.hasMany(Review, { foreignKey: "productId", as: "reviews" });
 
 module.exports = Review;

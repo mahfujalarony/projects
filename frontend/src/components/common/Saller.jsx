@@ -165,80 +165,113 @@ const Saller = () => {
     month: "long",
     day: "numeric",
   });
+  const avgRating = Number(profile.averageRating || 0);
+  const totalReviews = Number(profile.totalReviews || 0);
+  const merchantName = merchant.name || "Merchant";
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-12">
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-slate-50 pb-12">
+      <div className="relative overflow-hidden border-b border-slate-200 bg-[radial-gradient(circle_at_10%_10%,#dbeafe_0%,transparent_45%),radial-gradient(circle_at_90%_20%,#cffafe_0%,transparent_45%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]">
+        <div className="max-w-7xl mx-auto px-4 pt-8 pb-6 md:pt-10 md:pb-8">
+          <div className="rounded-3xl border border-white/80 bg-white/80 backdrop-blur-sm shadow-sm p-5 md:p-7">
           <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
             <Avatar
-              size={120}
+              size={124}
               src={getFullImageUrl(merchant.imageUrl)}
               icon={<UserOutlined />}
-              className="border-4 border-white shadow-md bg-gray-200"
+              className="border-4 border-white shadow-lg bg-gradient-to-br from-sky-100 to-cyan-100"
             />
             <div className="text-center md:text-left flex-1">
-              <Title level={2} style={{ marginBottom: 4, marginTop: 0 }}>
-                {merchant.name}
-              </Title>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <Title level={2} style={{ marginBottom: 4, marginTop: 0 }}>
+                    {merchantName}
+                  </Title>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 text-sky-700 px-3 py-1 text-xs font-medium border border-sky-100">
+                    <ShopOutlined /> Verified Merchant Storefront
+                  </div>
+                </div>
+                <div className="hidden md:block text-right">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">Store ID</div>
+                  <div className="text-sm font-semibold text-slate-700">#{merchant.id}</div>
+                </div>
+              </div>
 
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-gray-500 mb-4 text-sm">
-                <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 text-gray-500 mb-4 mt-4 text-sm">
+                <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full border border-blue-100">
                   <ShopOutlined /> Merchant
                 </span>
                 {profile.YourAddress && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-1 border border-emerald-100">
                     <EnvironmentOutlined /> {profile.YourAddress}
                   </span>
                 )}
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 px-2.5 py-1 border border-violet-100">
                   <CalendarOutlined /> Joined {joinedDate}
                 </span>
               </div>
 
               {profile.description && (
                 <Paragraph
-                  className="text-gray-600 max-w-2xl mx-auto md:mx-0"
-                  ellipsis={{ rows: 2, expandable: true, symbol: "more" }}
+                  className="text-gray-600 max-w-3xl mx-auto md:mx-0 mb-0"
+                  ellipsis={{ rows: 3, expandable: true, symbol: "more" }}
                 >
                   {profile.description}
                 </Paragraph>
               )}
+            </div>
+          </div>
+          </div>
 
-              <div className="flex items-center justify-center md:justify-start gap-6 mt-3 border-t pt-3 md:border-none md:pt-0">
-                <div className="flex flex-col md:flex-row items-center gap-1">
-                  <div className="flex items-center">
-                    <Rate disabled allowHalf value={Number(profile.averageRating || 0)} style={{ fontSize: 14 }} />
-                    <Text strong className="ml-2">
-                      {Number(profile.averageRating || 0).toFixed(1)}
-                    </Text>
-                  </div>
-                  <Text type="secondary" className="text-xs">
-                    ({profile.totalReviews || 0} Reviews)
-                  </Text>
-                </div>
-                <div className="h-4 w-px bg-gray-300 hidden md:block"></div>
-                <div>
-                  <Text strong>{meta.total}</Text> <Text type="secondary">Products</Text>
-                </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs text-slate-500 mb-1">Average Rating</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-bold text-slate-900">{avgRating.toFixed(1)}</span>
+                <Rate disabled allowHalf value={avgRating} style={{ fontSize: 12 }} />
               </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs text-slate-500 mb-1">Total Reviews</div>
+              <div className="text-xl font-bold text-slate-900">{totalReviews}</div>
+              <div className="text-xs text-slate-400 mt-1">Customer feedback count</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs text-slate-500 mb-1">Listed Products</div>
+              <div className="text-xl font-bold text-slate-900">{meta.total}</div>
+              <div className="text-xs text-slate-400 mt-1">Currently available items</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs text-slate-500 mb-1">Store Since</div>
+              <div className="text-sm font-semibold text-slate-900 leading-5">{joinedDate}</div>
+              <div className="text-xs text-slate-400 mt-1">Trusted seller profile</div>
             </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <Title level={4} style={{ margin: 0 }}>
-            All Products
-          </Title>
-          <Text type="secondary">
-            Loaded {products.length} / {meta.total}
-          </Text>
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 md:p-5 mb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <Title level={4} style={{ margin: 0 }}>
+                All Products
+              </Title>
+              <Text type="secondary" className="text-xs md:text-sm">
+                Browse products from this seller
+              </Text>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5 border border-slate-200 text-xs md:text-sm">
+              <span className="text-slate-500">Loaded</span>
+              <span className="font-semibold text-slate-900">{products.length}</span>
+              <span className="text-slate-300">/</span>
+              <span className="font-semibold text-slate-900">{meta.total}</span>
+            </div>
+          </div>
         </div>
 
         {products.length === 0 ? (
-          <div className="py-12 bg-white rounded-xl border border-dashed flex justify-center">
+          <div className="py-12 bg-white rounded-2xl border border-dashed border-slate-300 flex justify-center">
             <Empty description="No products found in this store." />
           </div>
         ) : (

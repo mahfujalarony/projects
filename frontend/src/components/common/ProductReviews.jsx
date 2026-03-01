@@ -280,7 +280,16 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
 
   return (
     <Card style={{ marginTop: 24 }}>
-      <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          flexWrap: "wrap",
+          width: "100%",
+        }}
+      >
         <div>
           <Title level={4} style={{ marginBottom: 2 }}>
             Reviews
@@ -293,11 +302,11 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
           </Space>
         </div>
 
-        <Space>
+        <Space wrap>
           <Select
             value={sortKey}
             onChange={setSortKey}
-            style={{ width: 160 }}
+            style={{ width: 160, maxWidth: "100%" }}
             options={[
               { value: "newest", label: "Newest" },
               { value: "oldest", label: "Oldest" },
@@ -307,7 +316,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
           <Select
             value={limit}
             onChange={setLimit}
-            style={{ width: 150 }}
+            style={{ width: 150, maxWidth: "100%" }}
             options={[
               { value: 3, label: "Show 3" },
               { value: 4, label: "Show 4" },
@@ -315,7 +324,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
             ]}
           />
         </Space>
-      </Space>
+      </div>
 
       <Divider style={{ margin: "16px 0" }} />
 
@@ -337,7 +346,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
           bodyStyle={{ padding: 16 }}
         >
           <Space direction="vertical" style={{ width: "100%" }} size="middle">
-            <Space align="center">
+            <Space align="center" wrap>
               <Text strong>Rating:</Text>
               <Rate value={myRating} onChange={setMyRating} />
               <Tag color="blue">{myRating}/5</Tag>
@@ -414,13 +423,22 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           {displayReviews.map((r) => (
             <Card key={r.id} type="inner" style={{ borderRadius: 14 }} bodyStyle={{ padding: 14 }}>
-              <Space align="start" style={{ width: "100%", justifyContent: "space-between" }}>
-                <Space align="start">
+              <div
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: "1 1 320px" }}>
                   <Avatar src={cleanImage(r.user?.imageUrl)} size={44} style={{ flex: "0 0 auto" }} />
-                  <div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <Space size="small" wrap>
                       <Text strong>{r.user?.name || "User"}</Text>
-                      <Rate disabled value={Number(r.rating || 0)} />
+                      <Rate disabled value={Number(r.rating || 0)} style={{ fontSize: 14 }} />
                       <Tag color="gold">{Number(r.rating || 0)}/5</Tag>
                     </Space>
 
@@ -439,7 +457,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
                     {Array.isArray(r.images) && r.images.length > 0 && (
                       <div style={{ marginTop: 10 }}>
                         <Image.PreviewGroup>
-                          <Space wrap size={8}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {r.images.map((imgUrl, idx) => (
                               <Image
                                 key={`${r.id}-img-${idx}`}
@@ -449,15 +467,17 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
                                 style={{ objectFit: "cover", borderRadius: 10 }}
                               />
                             ))}
-                          </Space>
+                          </div>
                         </Image.PreviewGroup>
                       </div>
                     )}
                   </div>
-                </Space>
+                </div>
 
-                <Text type="secondary">{timeAgo(r.createdAt)}</Text>
-              </Space>
+                <Text type="secondary" style={{ whiteSpace: "nowrap", marginLeft: "auto" }}>
+                  {timeAgo(r.createdAt)}
+                </Text>
+              </div>
             </Card>
           ))}
 

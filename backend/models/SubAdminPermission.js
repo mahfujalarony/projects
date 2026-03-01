@@ -8,6 +8,8 @@ const PERMISSIONS = [
   "manage_offer",
   "manage_catagory",
   "manage_catagoy",
+  "manage_merchant",
+  "manage_media_cleanup",
   "manage_users",
   "manage_support_chat",
   "manage_balance_topup",

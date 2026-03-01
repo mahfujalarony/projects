@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from "react";
-import logo from "./../../public/logo.jpg";
 import { message } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
+import { CustomerServiceOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import { setAuthState } from "../../redux/authSlice.js";
 import { API_BASE_URL, GOOGLE_CLIENT_ID } from "../../config/env";
+import { UPLOAD_BASE_URL } from "../../config/env";
 
 const Login = () => {
   const dispatch = useDispatch();
   const token = useSelector((state) => state.auth?.token);
   const [emailOrPhone, setEmailOrPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [siteLogo, setSiteLogo] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
@@ -21,6 +23,32 @@ const Login = () => {
       navigate("/", { replace: true });
     }
   }, [token, navigate]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const resolveLogoSrc = (value = "") => {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      return `${UPLOAD_BASE_URL}/${raw.replace(/^\/+/, "")}`;
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/settings`);
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.success || ignore) return;
+        setSiteLogo(resolveLogoSrc(json?.data?.siteLogoUrl));
+      } catch {
+        // no-op: keep empty logo
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   if (token) return null;
 
@@ -111,7 +139,9 @@ const Login = () => {
   return (
     <div className="flex min-h-screen flex-col justify-center py-12 sm:px-6 lg:px-8 bg-gray-50">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <img alt="Your Company" src={logo} className="mx-auto h-12 w-auto rounded-full" />
+        {siteLogo ? (
+          <img alt="Site Logo" src={siteLogo} className="mx-auto h-12 w-auto rounded-full" />
+        ) : null}
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Sign in to your account
         </h2>
@@ -180,7 +210,7 @@ const Login = () => {
                       onError={() => message.error("Google login popup failed")}
                       useOneTap={false}
                       locale="en"
-                      width="100%"
+                      width={320}
                     />
                   </GoogleOAuthProvider>
                 </div>
@@ -193,22 +223,24 @@ const Login = () => {
               <button
                 type="button"
                 onClick={() => navigate("/support")}
-                className="flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 shadow-sm hover:bg-sky-100"
               >
+                <CustomerServiceOutlined />
                 Contact Support
               </button>
             </div>
           </div>
 
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Don't have an account?{" "}
-            <span
+          <div className="mt-6 text-center text-sm text-gray-600">
+            Don't have an account?
+            <button
+              type="button"
               onClick={() => navigate("/register")}
-              className="font-medium text-indigo-600 hover:text-indigo-500 cursor-pointer"
+              className="ml-2 inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-500"
             >
-              Sign up
-            </span>
-          </p>
+              Sign up <ArrowRightOutlined />
+            </button>
+          </div>
         </div>
       </div>
     </div>

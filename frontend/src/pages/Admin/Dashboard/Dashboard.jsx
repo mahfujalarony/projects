@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, Row, Col, Statistic, Spin } from "antd";
+import { Card, Row, Col, Statistic } from "antd";
 import {
   LineChart,
   Line,
@@ -168,11 +168,7 @@ const Dashboard = () => {
   }, [token]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Spin size="large" tip="Loading Dashboard..." />
-      </div>
-    );
+    return null;
   }
 
   return (

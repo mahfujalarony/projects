@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Skeleton, Empty } from "antd";
+import { Skeleton } from "antd";
 import StoryViewer from "./StoryViewer";
 
 const clean = (u) => (u ? String(u).replace(/\\/g, "/") : "");
@@ -29,6 +29,7 @@ export default function Story({ stories = [], loading = false }) {
         key: s?.id ?? idx,
         storyId: s?.id ?? idx,
         title: s?.title || null,
+        productId: Number(s?.productId || 0) || null,
 
         mediaUrls: media,
 
@@ -45,47 +46,42 @@ export default function Story({ stories = [], loading = false }) {
     setOpen(true);
   };
 
+  if (!loading && items.length === 0) return null;
+
   return (
     <>
       <div className="px-4 md:px-6">
         {loading ? (
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="flex gap-3 md:gap-4 overflow-x-auto pb-2">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="min-w-[68px]">
-                <Skeleton.Avatar active size={56} shape="circle" />
+              <div key={i} className="w-[42vw] max-w-[170px] sm:w-[180px] md:w-[200px] lg:w-[220px] flex-shrink-0">
+                <Skeleton.Image
+                  active
+                  className="!w-full !h-auto !aspect-[9/16] !rounded-2xl !overflow-hidden"
+                />
               </div>
             ))}
           </div>
-        ) : items.length === 0 ? (
-          <div className="py-2">
-            <Empty description="No stories" />
-          </div>
         ) : (
-          <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+          <div className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide pb-2">
             {items.map((s, idx) => (
               <button
                 key={s.key}
                 type="button"
                 onClick={() => onOpen(idx)}
-                className="flex flex-col items-center min-w-[68px] group"
+                className="flex flex-col items-start w-[42vw] max-w-[170px] sm:w-[180px] md:w-[200px] lg:w-[220px] flex-shrink-0 group"
                 title={s.merchantName}
               >
-                {/* ring */}
-                <div className="p-[2px] rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-yellow-400">
-                  <div className="bg-white p-[2px] rounded-full">
-                    <div className="w-14 h-14 rounded-full overflow-hidden bg-gray-100">
-                      <img
-                        src={s.cover}
-                        alt={s.merchantName}
-                        className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform"
-                        draggable={false}
-                      />
-                    </div>
-                  </div>
+                <div className="w-full aspect-[9/16] rounded-2xl overflow-hidden bg-gray-100 border border-white shadow-sm">
+                  <img
+                    src={s.cover}
+                    alt={s.merchantName}
+                    className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform"
+                    draggable={false}
+                  />
                 </div>
 
-                {/* ✅ merchant name */}
-                <span className="mt-1 text-[11px] text-gray-600 max-w-[64px] truncate">
+                <span className="mt-1 text-xs md:text-sm font-medium text-gray-700 w-full truncate">
                   {s.merchantName}
                 </span>
               </button>

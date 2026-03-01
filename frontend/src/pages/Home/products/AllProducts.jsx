@@ -9,11 +9,11 @@ import { message, Skeleton } from "antd";
 import  { API_BASE_URL } from "../../../config/env";
 
 const API_BASE = `${API_BASE_URL}`;
-const ITEMS_PER_PAGE = 24;
+const getItemsPerPage = () => (window.innerWidth < 768 ? 40 : 60);
 
 const fetchProducts = async ({ pageParam = 1, queryKey }) => {
-  const [, sort] = queryKey;
-  const url = `${API_BASE}/api/products?page=${pageParam}&limit=${ITEMS_PER_PAGE}&sort=${encodeURIComponent(sort)}`;
+  const [, sort, itemsPerPage] = queryKey;
+  const url = `${API_BASE}/api/products?page=${pageParam}&limit=${Number(itemsPerPage) || 60}&sort=${encodeURIComponent(sort)}&mode=all`;
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -35,16 +35,23 @@ const AllProducts = () => {
   const { ref, inView } = useInView();
   const dispatch = useDispatch();
   const [sort, setSort] = useState("smart");
+  const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage());
+
+  useEffect(() => {
+    const onResize = () => setItemsPerPage(getItemsPerPage());
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, status, error } =
     useInfiniteQuery({
-      queryKey: ["public-products-infinite", sort],
+      queryKey: ["public-products-infinite", sort, "all", itemsPerPage],
       queryFn: fetchProducts,
       initialPageParam: 1,
       getNextPageParam: (lastPage) => lastPage.nextPage,
       staleTime: 1000 * 60 * 5,
       gcTime: 1000 * 60 * 30,
-      refetchOnMount: false,
+      refetchOnMount: true,
       refetchOnWindowFocus: false,
       placeholderData: (previousData) => previousData,
     });
@@ -110,12 +117,6 @@ const AllProducts = () => {
   return (
     <div className="container mx-auto px-2 py-6 pb-20">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4 px-1">
-        <h2 className="text-xl font-bold text-gray-800">
-          All Products
-          <span className="text-sm font-normal text-gray-500 ml-2">
-            ({totalItems} items)
-          </span>
-        </h2>
 
         <div className="flex items-center gap-2">
           <label htmlFor="product-sort" className="text-sm text-gray-600">

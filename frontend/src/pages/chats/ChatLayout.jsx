@@ -18,9 +18,13 @@ import {
 } from "antd";
 import {
   UserOutlined,
+  CustomerServiceOutlined,
   SendOutlined,
   ArrowLeftOutlined,
+  HomeOutlined,
+  DeleteOutlined,
   InfoCircleOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSelector } from "react-redux";
@@ -57,10 +61,15 @@ const ChatLayout = () => {
   const [chatSearch, setChatSearch] = useState("");
   const [composerText, setComposerText] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [conversationInfoOpen, setConversationInfoOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileData, setProfileData] = useState(null);
   const [blockBusy, setBlockBusy] = useState(false);
   const [supportOpenBusy, setSupportOpenBusy] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState([]);
+  const [deletingBulk, setDeletingBulk] = useState(false);
+  const [deletingChatIds, setDeletingChatIds] = useState([]);
   const [debouncedChatSearch, setDebouncedChatSearch] = useState("");
   const [conversationPreviewMap, setConversationPreviewMap] = useState({});
 
@@ -78,6 +87,7 @@ const ChatLayout = () => {
   const refreshTimerRef = useRef(null);
   const fetchConversationsRef = useRef(null);
   const previewLookupInFlightRef = useRef(new Set());
+  const chatListScrollTopRef = useRef(0);
   const messageCursorRef = useRef(null);
   const messageHasMoreRef = useRef(true);
   const messageLoadingRef = useRef(false);
@@ -88,6 +98,9 @@ const ChatLayout = () => {
   const isDesktop = screens.md;
   const isSupportViewer = ["admin", "support", "subadmin"].includes(String(user?.role || ""));
   const isAdminOrSubAdmin = ["admin", "subadmin"].includes(String(user?.role || ""));
+  const isEndUserSupportOnlyMode = !isSupportViewer;
+  const canDeleteConversations = !!token;
+  const canManageConversations = isSupportViewer;
   const canBlockConversation = String(user?.role || "") === "admin";
 
   const getAvatarUrl = useCallback((url) => {
@@ -108,7 +121,7 @@ const ChatLayout = () => {
     const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
 
     if (diffSec < 60) return "just now";
-    if (diffSec < 60 * 60) return `${Math.floor(diffSec / 60)}min ago`;
+    if (diffSec < 60 * 60) return `${Math.floor(diffSec / 60)}m ago`;
     if (diffSec < 60 * 60 * 24) return `${Math.floor(diffSec / (60 * 60))}h ago`;
     if (diffSec < 60 * 60 * 24 * 30) return `${Math.floor(diffSec / (60 * 60 * 24))}d ago`;
     if (diffSec < 60 * 60 * 24 * 365) return `${Math.floor(diffSec / (60 * 60 * 24 * 30))}m ago`;
@@ -147,9 +160,8 @@ const ChatLayout = () => {
   }, [messageLoadingMore]);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedChatSearch(chatSearch), 180);
-    return () => clearTimeout(t);
-  }, [chatSearch]);
+    setSelectedChatIds((prev) => prev.filter((id) => chatList.some((c) => String(c.id) === String(id))));
+  }, [chatList]);
 
   const conversationsQuery = useInfiniteQuery({
     queryKey: ["chat-conversations", token],
@@ -297,6 +309,17 @@ const ChatLayout = () => {
       if (!conversation) return { id: null, isGuest: false, name: "", imageUrl: null, email: "", phone: "" };
       const mine = String(conversation.customerId) === String(user?.id);
       const pid = mine ? conversation.agentId : conversation.customerId;
+      const isSupportChat = String(conversation.contextType || "").toLowerCase() === "support";
+      if (isEndUserSupportOnlyMode && isSupportChat) {
+        return {
+          id: pid || null,
+          isGuest: false,
+          name: "Support Chat",
+          imageUrl: null,
+          email: "",
+          phone: "",
+        };
+      }
       const guestActive = isSupportViewer && !mine && conversation.isGuestCustomer;
       if (guestActive) {
         return {
@@ -319,7 +342,7 @@ const ChatLayout = () => {
         phone: p?.phone || "",
       };
     },
-    [isSupportViewer, listUsers, user?.id]
+    [isSupportViewer, isEndUserSupportOnlyMode, listUsers, user?.id]
   );
 
   const openProfile = async () => {
@@ -404,6 +427,7 @@ const ChatLayout = () => {
 
   useEffect(() => {
     if (!chatList.length || !token || !user?.id) return;
+    if (isEndUserSupportOnlyMode) return;
 
     const allIds = [
       ...new Set(
@@ -443,7 +467,7 @@ const ChatLayout = () => {
       if (!flat.length) return;
       setListUsers((prev) => ({ ...prev, ...Object.fromEntries(flat) }));
     });
-  }, [chatList, token, user?.id, listUsers, isSupportViewer]);
+  }, [chatList, token, user?.id, listUsers, isSupportViewer, isEndUserSupportOnlyMode]);
 
   useEffect(() => {
     if (!socket) return;
@@ -632,7 +656,11 @@ const ChatLayout = () => {
   const currentPartnerId = currentPartnerMeta?.id;
   const isCurrentPartnerOnline = currentPartnerId ? onlineUserIdSet.has(String(currentPartnerId)) : false;
   const partnerName = currentPartnerMeta?.name || (String(currentConversation?.customerId) === String(user?.id) ? "Support Team" : `User #${currentConversation?.customerId || chatId}`);
+  const isSupportConversation = String(currentConversation?.contextType || "").toLowerCase() === "support";
+  const headerDisplayName = !isSupportViewer && isSupportConversation ? "Support Chat" : partnerName;
   const currentAvatarSrc = getAvatarUrl(currentPartnerMeta?.imageUrl);
+  const useSupportHeaderAvatar = isEndUserSupportOnlyMode && isSupportConversation;
+  const useCompactSupportHeader = isSupportViewer && !isDesktop;
 
   const getConversationPreview = useCallback(
     (item) => {
@@ -656,14 +684,19 @@ const ChatLayout = () => {
         "";
       const safeRaw = typeof raw === "string" || typeof raw === "number" ? raw : "";
       const text = String(safeRaw || "").replace(/\s+/g, " ").trim();
-      if (!text) return "No messages yet";
+      if (!text) {
+        const hasActivity = !!(item?.lastMessageAt || item?.updatedAt);
+        return hasActivity
+          ? (isEndUserSupportOnlyMode ? "Open chat to view latest message" : "Latest message available")
+          : "No messages yet";
+      }
 
       const senderId =
         item?.lastMessageSenderId || item?.lastMessage?.senderId || item?.messageSenderId || item?.senderId;
       const byMe = String(senderId || "") === String(user?.id || "");
       return `${byMe ? "You: " : ""}${text}`;
     },
-    [user?.id, conversationPreviewMap]
+    [user?.id, conversationPreviewMap, isEndUserSupportOnlyMode]
   );
 
   useEffect(() => {
@@ -682,6 +715,7 @@ const ChatLayout = () => {
 
   useEffect(() => {
     if (!token || !chatList.length) return;
+    if (isEndUserSupportOnlyMode) return;
     const missing = chatList
       .filter((item) => {
         const id = String(item?.id || "");
@@ -735,7 +769,7 @@ const ChatLayout = () => {
     return () => {
       cancelled = true;
     };
-  }, [chatList, token, conversationPreviewMap]);
+  }, [chatList, token, conversationPreviewMap, isEndUserSupportOnlyMode]);
 
   const filteredChatList = useMemo(() => {
     const needle = String(debouncedChatSearch || "").trim().toLowerCase();
@@ -786,6 +820,59 @@ const ChatLayout = () => {
     if (el.scrollTop < 80) fetchMessages({ reset: false });
   };
 
+  const applyDeletedConversationsLocally = useCallback((ids = []) => {
+    const idSet = new Set(ids.map((x) => String(x)));
+    setChatList((prev) => prev.filter((c) => !idSet.has(String(c.id))));
+    setSelectedChatIds((prev) => prev.filter((id) => !idSet.has(String(id))));
+    if (chatId && idSet.has(String(chatId))) {
+      navigate("/chats");
+      setCurrentConversation(null);
+      setMessages([]);
+    }
+  }, [chatId, navigate]);
+
+  const handleDeleteChat = useCallback(async (conversationId) => {
+    if (!canDeleteConversations || !token) return;
+
+    setDeletingChatIds((prev) => [...prev, conversationId]);
+    try {
+      const res = await axios.delete(`${API_BASE}/api/chat/conversations/${conversationId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.data?.success) throw new Error(res.data?.message || "Delete failed");
+      applyDeletedConversationsLocally(res.data.deletedIds || [conversationId]);
+      antdMessage.success("Chat deleted");
+      fetchConversationsRef.current?.({ reset: true });
+    } catch (error) {
+      antdMessage.error(error?.response?.data?.message || error?.message || "Delete failed");
+    } finally {
+      setDeletingChatIds((prev) => prev.filter((id) => String(id) !== String(conversationId)));
+    }
+  }, [canDeleteConversations, token, applyDeletedConversationsLocally]);
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (!canManageConversations || !token || !selectedChatIds.length) return;
+
+    setDeletingBulk(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE}/api/chat/conversations/bulk-delete`,
+        { ids: selectedChatIds },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.data?.success) throw new Error(res.data?.message || "Bulk delete failed");
+      const deletedIds = Array.isArray(res.data.deletedIds) ? res.data.deletedIds : selectedChatIds;
+      applyDeletedConversationsLocally(deletedIds);
+      setSelectionMode(false);
+      antdMessage.success(`${deletedIds.length} chat deleted`);
+      fetchConversationsRef.current?.({ reset: true });
+    } catch (error) {
+      antdMessage.error(error?.response?.data?.message || error?.message || "Bulk delete failed");
+    } finally {
+      setDeletingBulk(false);
+    }
+  }, [canManageConversations, token, selectedChatIds, applyDeletedConversationsLocally]);
+
   return (
     <Layout style={{ height: "100dvh", background: "#f8fafc" }}>
       {(isDesktop || !chatId) && (
@@ -801,6 +888,7 @@ const ChatLayout = () => {
             filteredChatList={filteredChatList}
             chatSearch={chatSearch}
             onSearchChange={setChatSearch}
+            onSearchSubmit={(value) => setDebouncedChatSearch(String(value || ""))}
             onChatListScroll={handleChatListScroll}
             onOpenChat={(id) => navigate(`/chats/${id}`)}
             getPartnerMeta={getPartnerMeta}
@@ -810,6 +898,29 @@ const ChatLayout = () => {
             isSupportViewer={isSupportViewer}
             onHeaderClick={() => navigate("/")}
             onBackClick={() => navigate(-1)}
+            isSupportOnlyMode={isEndUserSupportOnlyMode}
+            showGlobalSearchLabel={!isEndUserSupportOnlyMode}
+            onStartSupport={handleOpenSupportConversation}
+            supportOpenBusy={supportOpenBusy}
+            canDeleteConversations={canDeleteConversations}
+            canManageConversations={canManageConversations}
+            selectionMode={selectionMode}
+            selectedChatIds={selectedChatIds}
+            onToggleSelectionMode={() => {
+              setSelectionMode((v) => !v);
+              setSelectedChatIds([]);
+            }}
+            onToggleSelectChat={(id, checked) =>
+              setSelectedChatIds((prev) =>
+                checked ? [...new Set([...prev, id])] : prev.filter((x) => String(x) !== String(id))
+              )
+            }
+            onDeleteChat={handleDeleteChat}
+            onDeleteSelected={handleDeleteSelected}
+            deletingChatIds={deletingChatIds}
+            deletingBulk={deletingBulk}
+            initialScrollTop={chatListScrollTopRef.current}
+            onListScrollTopChange={(v) => { chatListScrollTopRef.current = v; }}
           />
         </Sider>
       )}
@@ -820,52 +931,163 @@ const ChatLayout = () => {
             <>
               <div
                 style={{
-                  padding: "0 14px",
+                  padding: isDesktop ? "0 14px" : "0 10px",
                   borderBottom: "1px solid #e5e7eb",
                   display: "flex",
                   alignItems: "center",
-                  gap: "12px",
-                  minHeight: "68px",
+                  gap: isDesktop ? "12px" : "8px",
+                  minHeight: isDesktop ? "68px" : "58px",
                   background: "#fff",
                 }}
               >
                 {!isDesktop && <Button icon={<ArrowLeftOutlined />} type="text" onClick={() => navigate("/chats")} />}
                 <Avatar
-                  src={currentAvatarSrc}
-                  icon={!currentAvatarSrc && <UserOutlined />}
-                  style={{ cursor: currentPartnerId ? "pointer" : "default" }}
-                  onClick={openProfile}
+                  src={useSupportHeaderAvatar ? null : currentAvatarSrc}
+                  icon={useSupportHeaderAvatar ? <CustomerServiceOutlined /> : !currentAvatarSrc && <UserOutlined />}
+                  style={
+                    useSupportHeaderAvatar
+                      ? {
+                          cursor: "default",
+                          background: "linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%)",
+                          color: "#fff",
+                        }
+                      : { cursor: currentPartnerId ? "pointer" : "default" }
+                  }
+                  onClick={useSupportHeaderAvatar ? undefined : openProfile}
                 />
                 <div style={{ minWidth: 0, flex: 1 }}>
-              <Button type="link" style={{ padding: 0, height: "auto", lineHeight: 1 }} onClick={openProfile} disabled={!currentPartnerId}>
-                <Text strong style={{ fontSize: 16 }}>
-                  {partnerName}
+              <Button type="link" style={{ padding: 0, height: "auto", lineHeight: 1, maxWidth: "100%" }} onClick={openProfile} disabled={!currentPartnerId || useSupportHeaderAvatar}>
+                <Text strong style={{ fontSize: isDesktop ? 16 : 14 }}>
+                  {headerDisplayName}
                 </Text>
                   </Button>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <Text type="secondary" style={{ fontSize: "12px" }}>
-                      Support Message
-                    </Text>
-                    <Tag color={isCurrentPartnerOnline ? "green" : "default"} style={{ marginInlineEnd: 0 }}>
-                      {isCurrentPartnerOnline ? "Online" : "Offline"}
-                    </Tag>
-                    <Tag color={(currentConversation?.status || "open") === "open" ? "blue" : "default"} style={{ marginInlineEnd: 0 }}>
-                      {currentConversation?.status || "open"}
-                    </Tag>
-                    {!!currentConversation?.isBlocked && (
-                      <Tag color="red" style={{ marginInlineEnd: 0 }}>
-                        Blocked
+                  {!useCompactSupportHeader ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: isDesktop ? 8 : 6, flexWrap: "wrap" }}>
+                      <Tag
+                        color="cyan"
+                        icon={<MessageOutlined />}
+                        style={{ marginInlineEnd: 0, fontSize: 11, paddingInline: 6 }}
+                      >
+                        {isDesktop ? "Support Chat" : "Support"}
                       </Tag>
-                    )}
-                  </div>
+                      <Tag color={isCurrentPartnerOnline ? "green" : "default"} style={{ marginInlineEnd: 0 }}>
+                        {isCurrentPartnerOnline ? "Online" : "Offline"}
+                      </Tag>
+                      <Tag color={(currentConversation?.status || "open") === "open" ? "blue" : "default"} style={{ marginInlineEnd: 0 }}>
+                        {currentConversation?.status || "open"}
+                      </Tag>
+                      {!!currentConversation?.isBlocked && (
+                        <Tag color="red" style={{ marginInlineEnd: 0 }}>
+                          Blocked
+                        </Tag>
+                      )}
+                    </div>
+                  ) : (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {isCurrentPartnerOnline ? "Online" : "Offline"}
+                    </Text>
+                  )}
                 </div>
-                {canBlockConversation && (
-                  <Button danger={!currentConversation?.isBlocked} loading={blockBusy} onClick={handleToggleBlock}>
+                {canBlockConversation && !useCompactSupportHeader && (
+                  <Button
+                    danger={!currentConversation?.isBlocked}
+                    loading={blockBusy}
+                    onClick={handleToggleBlock}
+                    size={isDesktop ? "middle" : "small"}
+                  >
                     {currentConversation?.isBlocked ? "Unblock" : "Block"}
                   </Button>
                 )}
-                <Button type="text" icon={<InfoCircleOutlined />} onClick={openProfile} disabled={!currentPartnerId} />
+                {!useSupportHeaderAvatar && !useCompactSupportHeader && (
+                  <Button
+                    type="text"
+                    size={isDesktop ? "middle" : "small"}
+                    icon={<InfoCircleOutlined />}
+                    onClick={openProfile}
+                    disabled={!currentPartnerId}
+                  />
+                )}
+                {canDeleteConversations && currentConversation?.id && !useCompactSupportHeader && (
+                  <Button
+                    type="text"
+                    danger
+                    size={isDesktop ? "middle" : "small"}
+                    icon={<DeleteOutlined />}
+                    loading={deletingChatIds.includes(currentConversation.id)}
+                    onClick={() => handleDeleteChat(currentConversation.id)}
+                    aria-label="Delete Chat"
+                  />
+                )}
+                {!useCompactSupportHeader ? (
+                  <Button
+                    type="text"
+                    size={isDesktop ? "middle" : "small"}
+                    icon={<HomeOutlined />}
+                    onClick={() => navigate("/")}
+                    aria-label="Go Home"
+                  />
+                ) : (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<InfoCircleOutlined />}
+                    onClick={() => setConversationInfoOpen(true)}
+                    aria-label="Conversation details"
+                  />
+                )}
               </div>
+
+              {useCompactSupportHeader && (
+                <Drawer
+                  placement="bottom"
+                  height="auto"
+                  open={conversationInfoOpen}
+                  onClose={() => setConversationInfoOpen(false)}
+                  title="Conversation Details"
+                >
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    <Tag color="cyan" icon={<MessageOutlined />}>Support</Tag>
+                    <Tag color={isCurrentPartnerOnline ? "green" : "default"}>
+                      {isCurrentPartnerOnline ? "Online" : "Offline"}
+                    </Tag>
+                    <Tag color={(currentConversation?.status || "open") === "open" ? "blue" : "default"}>
+                      {currentConversation?.status || "open"}
+                    </Tag>
+                    {!!currentConversation?.isBlocked && <Tag color="red">Blocked</Tag>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {canBlockConversation && (
+                      <Button
+                        danger={!currentConversation?.isBlocked}
+                        loading={blockBusy}
+                        onClick={handleToggleBlock}
+                        size="small"
+                      >
+                        {currentConversation?.isBlocked ? "Unblock" : "Block"}
+                      </Button>
+                    )}
+                    {!useSupportHeaderAvatar && (
+                      <Button size="small" icon={<InfoCircleOutlined />} onClick={openProfile} disabled={!currentPartnerId}>
+                        Profile
+                      </Button>
+                    )}
+                    {canDeleteConversations && currentConversation?.id && (
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        loading={deletingChatIds.includes(currentConversation.id)}
+                        onClick={() => handleDeleteChat(currentConversation.id)}
+                      >
+                        Delete
+                      </Button>
+                    )}
+                    <Button size="small" icon={<HomeOutlined />} onClick={() => navigate("/")}>
+                      Home
+                    </Button>
+                  </div>
+                </Drawer>
+              )}
 
               <div
                 ref={messageWrapRef}
@@ -914,7 +1136,7 @@ const ChatLayout = () => {
                             gap: 8,
                           }}
                         >
-                          <span>{formatTime(msg.createdAt)}</span>
+                          <span>{formatRelativeAgo(msg.createdAt)}</span>
                           {isMyMessage && <span>{msg.readAt ? "Read" : "Delivered"}</span>}
                         </div>
                       </div>
@@ -964,19 +1186,56 @@ const ChatLayout = () => {
                 padding: 16,
               }}
             >
-              <UserOutlined style={{ fontSize: 56, marginBottom: 14, opacity: 0.15 }} />
-              <Text type="secondary" style={{ fontSize: 16, textAlign: "center" }}>
-                Select a support conversation
-              </Text>
-              {!isSupportViewer && (
-                <Button
-                  type="primary"
-                  style={{ marginTop: 14 }}
-                  loading={supportOpenBusy}
-                  onClick={handleOpenSupportConversation}
+              {!isSupportViewer ? (
+                <Card
+                  bordered={false}
+                  style={{
+                    width: "100%",
+                    maxWidth: 520,
+                    borderRadius: 16,
+                    boxShadow: "0 10px 30px rgba(15,23,42,0.06)",
+                  }}
+                  bodyStyle={{ padding: isDesktop ? 28 : 20, textAlign: "center" }}
                 >
-                  Start Support Conversation
-                </Button>
+                  <div
+                    style={{
+                      width: 76,
+                      height: 76,
+                      borderRadius: 999,
+                      margin: "0 auto 14px",
+                      display: "grid",
+                      placeItems: "center",
+                      background: "linear-gradient(135deg, #dbeafe 0%, #cffafe 100%)",
+                      color: "#0f766e",
+                      fontSize: 30,
+                    }}
+                  >
+                    <CustomerServiceOutlined />
+                  </div>
+                  <Title level={4} style={{ marginBottom: 8 }}>
+                    Support Chat
+                  </Title>
+                  <Text type="secondary" style={{ display: "block", lineHeight: 1.6 }}>
+                    যদি আপনি কোনো সমস্যা ফেস করেন, তাহলে অ্যাডমিন/সাপোর্ট এর সাথে যোগাযোগ করতে মেসেজ করুন।
+                  </Text>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<MessageOutlined />}
+                    style={{ marginTop: 16 }}
+                    loading={supportOpenBusy}
+                    onClick={handleOpenSupportConversation}
+                  >
+                    Click to Start Chat
+                  </Button>
+                </Card>
+              ) : (
+                <>
+                  <UserOutlined style={{ fontSize: 56, marginBottom: 14, opacity: 0.15 }} />
+                  <Text type="secondary" style={{ fontSize: 16, textAlign: "center" }}>
+                    Select a support conversation
+                  </Text>
+                </>
               )}
             </div>
           )}
@@ -987,7 +1246,9 @@ const ChatLayout = () => {
         title="User Details"
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
-        width={isDesktop ? 420 : "100%"}
+        placement={isDesktop ? "right" : "bottom"}
+        width={isDesktop ? 420 : undefined}
+        height={isDesktop ? undefined : "78vh"}
       >
         {profileLoading ? (
           <Skeleton active avatar paragraph={{ rows: 6 }} />

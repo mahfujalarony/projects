@@ -86,7 +86,7 @@ async function apiFetch(path, { method = "GET", body } = {}) {
   return data;
 }
 
-const NotificationSidebar = ({ autoRefreshMs = 0 }) => {
+const NotificationSidebar = ({ autoRefreshMs = 30000 }) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -237,8 +237,8 @@ const NotificationSidebar = ({ autoRefreshMs = 0 }) => {
   useEffect(() => {
     if (!autoRefreshMs || autoRefreshMs < 3000) return; // min 3s
     const t = setInterval(() => {
-      // drawer open থাকলে silent refresh
-      if (open) loadNotifications({ silent: true });
+      // drawer open + tab visible থাকলে silent refresh
+      if (open && document.visibilityState === "visible") loadNotifications({ silent: true });
     }, autoRefreshMs);
     return () => clearInterval(t);
   }, [autoRefreshMs, open, loadNotifications]);

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
-import logo from "./../../public/logo.jpg";
 import { useDispatch, useSelector } from "react-redux";
 import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
+import { CustomerServiceOutlined, ArrowRightOutlined } from "@ant-design/icons";
+import { UploadCloud, Eye, EyeOff } from "lucide-react";
 import { setAuthState } from "../../redux/authSlice.js";
 import { API_BASE_URL, GOOGLE_CLIENT_ID } from "../../config/env";
 import { UPLOAD_BASE_URL } from "../../config/env";
@@ -14,7 +15,11 @@ const Register = () => {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [image, setImage] = useState(null);
+  const [siteLogo, setSiteLogo] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -28,7 +33,37 @@ const Register = () => {
     }
   }, [token, navigate]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    const resolveLogoSrc = (value = "") => {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      return `${UPLOAD_BASE_URL}/${raw.replace(/^\/+/, "")}`;
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/settings`);
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.success || ignore) return;
+        setSiteLogo(resolveLogoSrc(json?.data?.siteLogoUrl));
+      } catch {
+        // no-op: keep empty logo
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
   if (token) return null;
+  const passwordTooShort = String(password || "").length > 0 && String(password || "").length < 6;
+  const confirmTooShort = String(confirmPassword || "").length > 0 && String(confirmPassword || "").length < 6;
+  const passwordMismatch =
+    String(confirmPassword || "").length > 0 && String(password || "") !== String(confirmPassword || "");
 
   const uploadImageToServer = async (file) => {
     const imageserverUrl = `${UPLOAD_BASE_URL}/upload/image`;
@@ -52,6 +87,18 @@ const Register = () => {
 
     if (!email.trim() && !phone.trim()) {
       const msg = "Please provide email or phone number";
+      setError(msg);
+      message.error(msg);
+      return;
+    }
+    if (String(password || "").length < 6) {
+      const msg = "Password must be at least 6 characters";
+      setError(msg);
+      message.error(msg);
+      return;
+    }
+    if (password !== confirmPassword) {
+      const msg = "Password and confirm password do not match";
       setError(msg);
       message.error(msg);
       return;
@@ -94,6 +141,7 @@ const Register = () => {
       setEmail("");
       setPhone("");
       setPassword("");
+      setConfirmPassword("");
       setImage(null);
     } catch (err) {
       setError(err.message);
@@ -148,7 +196,9 @@ const Register = () => {
   return (
     <div className="flex min-h-screen flex-col justify-center py-12 sm:px-6 lg:px-8 bg-gray-50">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <img alt="Your Company" src={logo} className="mx-auto h-12 w-auto rounded-full" />
+        {siteLogo ? (
+          <img alt="Site Logo" src={siteLogo} className="mx-auto h-12 w-auto rounded-full" />
+        ) : null}
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Create your account
         </h2>
@@ -203,25 +253,77 @@ const Register = () => {
             <label className="block text-sm font-medium text-gray-900">
               Password
             </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-2 block w-full rounded-md px-3 py-1.5 border border-gray-300
-                         focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-1 outline-none"
-            />
+            <div className="mt-2 relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="block w-full rounded-md px-3 py-1.5 pr-10 border border-gray-300
+                           focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-1 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-2 my-auto text-gray-500 hover:text-gray-700"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {passwordTooShort ? (
+              <p className="mt-1 text-xs text-red-600">Password must be at least 6 characters.</p>
+            ) : null}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-900">
-              Profile Image (optional)
+              Confirm Password
+            </label>
+            <div className="mt-2 relative">
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                required
+                minLength={6}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="block w-full rounded-md px-3 py-1.5 pr-10 border border-gray-300
+                           focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-1 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((v) => !v)}
+                className="absolute inset-y-0 right-2 my-auto text-gray-500 hover:text-gray-700"
+                aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+              >
+                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {confirmTooShort ? (
+              <p className="mt-1 text-xs text-red-600">Confirm password must be at least 6 characters.</p>
+            ) : passwordMismatch ? (
+              <p className="mt-1 text-xs text-red-600">Password and confirm password do not match.</p>
+            ) : null}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-900">
+              Profile Image
+            </label>
+            <label
+              htmlFor="profile-image-upload"
+              className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-sky-300 bg-sky-50 px-3 py-3 text-sm font-medium text-sky-700 hover:bg-sky-100"
+            >
+              <UploadCloud size={18} />
+              <span>{image ? "Change image" : "Click to upload image"}</span>
             </label>
             <input
+              id="profile-image-upload"
               type="file"
               accept="image/*"
               onChange={(e) => setImage(e.target.files?.[0] || null)}
-              className="mt-2 block w-full"
+              className="sr-only"
             />
           </div>
 
@@ -267,7 +369,7 @@ const Register = () => {
                       useOneTap={false}
                       text="signup_with"
                       locale="en"
-                      width="100%"
+                      width={320}
                     />
                   </GoogleOAuthProvider>
                 </div>
@@ -278,23 +380,26 @@ const Register = () => {
               )}
 
               <button
+                type="button"
                 onClick={() => navigate("/support")}
-                className="flex w-full justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 shadow-sm hover:bg-sky-100"
               >
+                <CustomerServiceOutlined />
                 Contact Support
               </button>
             </div>
           </div>
 
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Already have an account?{" "}
-            <span
+          <div className="mt-6 text-center text-sm text-gray-600">
+            Already have an account?
+            <button
+              type="button"
               onClick={() => navigate("/login")}
-              className="font-medium text-indigo-600 hover:text-indigo-500 cursor-pointer"
+              className="ml-2 inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-500"
             >
-              Sign in
-            </span>
-          </p>
+              Sign in <ArrowRightOutlined />
+            </button>
+          </div>
         </div>
       </div>
     </div>

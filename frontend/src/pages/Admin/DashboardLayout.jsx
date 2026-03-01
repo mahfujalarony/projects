@@ -6,7 +6,6 @@ import {
   LayoutDashboard, 
   Users, 
   UserPlus, 
-  UserX, 
   ShoppingBag, 
   CarTaxiFront,
   BotOffIcon,
@@ -15,7 +14,8 @@ import {
   MessageSquare,
   Search,
   Wallet,
-  DollarSign
+  DollarSign,
+  Trash2
 } from "lucide-react";
 import { Button, Layout, Menu, theme, Drawer, Badge, Input, Grid } from "antd";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
@@ -94,6 +94,11 @@ const DashboardLayout = () => {
       key: "/admin/balance-topup",
       icon: <DollarSign size={18} />,
       label: "Balance Topup",
+    },
+    {
+      key: "/admin/media-cleanup",
+      icon: <Trash2 size={18} />,
+      label: "Media Cleanup",
     },
     {
       key: "/admin/settings",

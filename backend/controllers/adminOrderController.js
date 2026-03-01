@@ -108,14 +108,6 @@ exports.getAdminOrderDetails = async (req, res) => {
     const id = Number(req.params.id);
     console.log("Fetching details for order id:", id);
 
-    // association once
-    if (!OrderItem.associations?.Address) {
-      OrderItem.belongsTo(Address, { foreignKey: "addressId" });
-    }
-    if (!OrderItem.associations?.User) {
-      OrderItem.belongsTo(User, { foreignKey: "userId" });
-    }
-
     const order = await OrderItem.findByPk(id, {
       include: [
         { model: Address }, // no alias -> easier
@@ -141,7 +133,13 @@ exports.updateOrderStatus = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const id = Number(req.params.id);
-    const { status: nextStatus } = req.body;
+    const body = req.body || {};
+    const { status: nextStatus } = body;
+    const hasTrackingPayload =
+      Object.prototype.hasOwnProperty.call(body, "trackingNumber") ||
+      Object.prototype.hasOwnProperty.call(body, "trackingNote");
+    const trackingNumber = String(body.trackingNumber || "").trim();
+    const trackingNote = String(body.trackingNote || "").trim();
 
     if (!Number.isFinite(id)) {
       await t.rollback();
@@ -229,22 +227,43 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     orderItem.status = nextStatus;
+    if (hasTrackingPayload) {
+      orderItem.trackingNumber = trackingNumber || null;
+      orderItem.trackingNote = trackingNote || null;
+    }
     await orderItem.save({ transaction: t });
+
+    const trackingSuffix =
+      orderItem.trackingNumber && (nextStatus === "processing" || nextStatus === "shipped")
+        ? ` Tracking: ${orderItem.trackingNumber}.`
+        : "";
 
     const notifications = [
       {
         userId: orderItem.userId,
         type: "order",
         title: `Order ${nextStatus}`,
-        message: `Your order #${orderItem.id} has been updated to ${nextStatus}.`,
-        meta: { orderId: orderItem.id, status: nextStatus, route: "/orders" },
+        message: `Your order #${orderItem.id} has been updated to ${nextStatus}.${trackingSuffix}`,
+        meta: {
+          orderId: orderItem.id,
+          status: nextStatus,
+          trackingNumber: orderItem.trackingNumber || null,
+          trackingNote: orderItem.trackingNote || null,
+          route: "/orders",
+        },
       },
       {
         userId: orderItem.matchMerchantId,
         type: "order",
         title: `Order ${nextStatus}`,
         message: `Order #${orderItem.id} status has been updated to ${nextStatus}.`,
-        meta: { orderId: orderItem.id, status: nextStatus, route: "/merchant/my-orders" },
+        meta: {
+          orderId: orderItem.id,
+          status: nextStatus,
+          trackingNumber: orderItem.trackingNumber || null,
+          trackingNote: orderItem.trackingNote || null,
+          route: "/merchant/my-orders",
+        },
       },
     ];
 

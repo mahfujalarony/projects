@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const Offer = require("../models/Offer");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
 
 const cleanPath = (v) => String(v || "").trim().replace(/\\/g, "/");
 
@@ -50,6 +51,7 @@ exports.adminListOffers = async (req, res) => {
       where[Op.or] = [
         { title: { [Op.like]: `%${q.trim()}%` } },
         { subtitle: { [Op.like]: `%${q.trim()}%` } },
+        { description: { [Op.like]: `%${q.trim()}%` } },
       ];
     }
     if (status !== "all") where.isActive = status === "active";
@@ -75,6 +77,7 @@ exports.adminCreateOffer = async (req, res) => {
     const {
       title,
       subtitle,
+      description,
       imageUrl,
       linkUrl,
       type = "carousel",
@@ -94,6 +97,7 @@ exports.adminCreateOffer = async (req, res) => {
     const row = await Offer.create({
       title: String(title).trim(),
       subtitle: subtitle ? String(subtitle).trim() : null,
+      description: description ? String(description) : null,
       imageUrl: cleanPath(imageUrl),
       linkUrl: linkUrl ? String(linkUrl).trim() : null,
       type,
@@ -118,6 +122,8 @@ exports.adminUpdateOffer = async (req, res) => {
     if (!row) return res.status(404).json({ success: false, message: "Offer not found" });
 
     const patch = { ...req.body };
+    if (patch.description !== undefined) patch.description = patch.description ? String(patch.description) : null;
+    if (patch.subtitle !== undefined && patch.subtitle === "") patch.subtitle = null;
     if (patch.imageUrl !== undefined) patch.imageUrl = cleanPath(patch.imageUrl);
     if (patch.sortOrder !== undefined) patch.sortOrder = Number(patch.sortOrder || 0);
     if (patch.isActive !== undefined) patch.isActive = Boolean(patch.isActive);
@@ -140,8 +146,19 @@ exports.adminDeleteOffer = async (req, res) => {
     const row = await Offer.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Offer not found" });
 
+    const imagePath = row.imageUrl;
     await row.destroy();
-    res.json({ success: true, message: "Offer deleted" });
+
+    let imageRemoved = false;
+    if (imagePath) {
+      try {
+        imageRemoved = await deleteUploadFileIfSafe(imagePath);
+      } catch (cleanupErr) {
+        console.error("adminDeleteOffer image cleanup error:", cleanupErr);
+      }
+    }
+
+    res.json({ success: true, message: "Offer deleted", imageRemoved });
   } catch (e) {
     res.status(500).json({ success: false, message: "Failed to delete offer" });
   }

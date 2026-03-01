@@ -11,6 +11,10 @@ const SubCategory = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    parentSubCategoryId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
 
     name: { type: DataTypes.STRING(120), allowNull: false },
 
@@ -24,6 +28,7 @@ const SubCategory = sequelize.define(
     timestamps: true,
     indexes: [
       { unique: true, fields: ["categoryId", "slug"] },
+      { fields: ["parentSubCategoryId"] },
     ],
   }
 );

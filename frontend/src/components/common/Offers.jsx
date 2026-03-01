@@ -1,15 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Drawer, Grid, Modal } from "antd";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
+const { useBreakpoint } = Grid;
 
 // same helper style as your Home component
 const getFullImageUrl = (imgPath) => {
-  if (!imgPath) return "/placeholder-product.jpg";
-  const cleanPath = String(imgPath).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (cleanPath.startsWith("http")) return cleanPath;
-  return `${API_BASE_URL}/${cleanPath}`;
+  return normalizeImageUrl(imgPath) || "/placeholder-product.jpg";
 };
 
 const Offers = () => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.sm;
+  const stripHtml = (html = "") =>
+    String(html || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
   useEffect(() => window.scrollTo(0, 0), []);
 
   // filters
@@ -179,6 +187,11 @@ const Offers = () => {
 
                   <div className="p-4">
                     <div className="text-base font-semibold line-clamp-1">{o.title || "Untitled Offer"}</div>
+                    {o.description ? (
+                      <div className="mt-1 text-sm text-gray-600 line-clamp-2">
+                        {stripHtml(o.description)}
+                      </div>
+                    ) : null}
 
                     <div className="mt-3 flex items-center justify-between">
                       <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
@@ -228,16 +241,20 @@ const Offers = () => {
       </div>
 
       {/* Modal */}
-      {selected ? (
+      {false && selected && !isMobile ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
           onClick={() => setSelected(null)}
         >
           <div
-            className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl"
+            className="w-full max-w-3xl overflow-hidden bg-white shadow-xl rounded-t-2xl sm:rounded-2xl max-h-[92vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-4">
+            <div className="sm:hidden flex justify-center pt-2">
+              <div className="h-1.5 w-12 rounded-full bg-gray-300" />
+            </div>
+
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-4 shrink-0">
               <div>
                 <div className="text-lg font-semibold">{selected.title || "Offer"}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -266,16 +283,100 @@ const Offers = () => {
               </button>
             </div>
 
+            <div className="overflow-y-auto">
             <div className="bg-gray-50 p-2">
               <img
                 src={getFullImageUrl(selected.imageUrl)}
                 alt={selected.title || "Offer"}
-                className="max-h-[75vh] w-full rounded-xl object-contain"
+                className="max-h-[42vh] sm:max-h-[75vh] w-full rounded-xl object-contain"
               />
+            </div>
+
+            {selected.description ? (
+              <div className="p-4 border-t border-gray-100">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                  Description
+                </div>
+                <div
+                  className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2"
+                  dangerouslySetInnerHTML={{ __html: selected.description }}
+                />
+              </div>
+            ) : null}
             </div>
           </div>
         </div>
       ) : null}
+
+      <Drawer
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        placement={isMobile ? "bottom" : "right"}
+        height={isMobile ? "88vh" : undefined}
+        width={isMobile ? undefined : 900}
+        closable={false}
+        title={null}
+        styles={{ header: { display: "none" }, body: { padding: 0, overflow: "hidden" } }}
+      >
+        {selected ? (
+          <div className="h-full flex flex-col bg-white">
+            <div className="flex justify-center pt-2 pb-1 shrink-0">
+              <div className="h-1.5 w-12 rounded-full bg-gray-300" />
+            </div>
+
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-4 shrink-0">
+              <div>
+                <div className="text-lg font-semibold">{selected.title || "Offer"}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                    {selected.category || "General"}
+                  </span>
+                  {selected.tag ? (
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                      {selected.tag}
+                    </span>
+                  ) : null}
+                  {selected.type ? (
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                      {selected.type}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <button
+                className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
+                onClick={() => setSelected(null)}
+                aria-label="Close"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="overflow-y-auto">
+              <div className="bg-gray-50 p-2">
+                <img
+                  src={getFullImageUrl(selected.imageUrl)}
+                  alt={selected.title || "Offer"}
+                  className="max-h-[42vh] w-full rounded-xl object-contain"
+                />
+              </div>
+
+              {selected.description ? (
+                <div className="p-4 border-t border-gray-100">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                    Description
+                  </div>
+                  <div
+                    className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2"
+                    dangerouslySetInnerHTML={{ __html: selected.description }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
     </div>
   );
 };

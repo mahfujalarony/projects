@@ -1,10 +1,17 @@
 // controllers/storyController.js
 const { Op } = require("sequelize");
+const fs = require("fs/promises");
+const path = require("path");
+const sequelize = require("../config/db");
 const Story = require("../models/Story");
 const Merchant = require("../models/MerchantProfile");
 const User = require("../models/Authentication");
+const MerchentStore = require("../models/MerchentStore");
+const ProductDailyStat = require("../models/ProductDailyStat");
+const AppSetting = require("../models/AppSetting");
 
 const now = () => new Date();
+const UPLOAD_ROOT = path.resolve(__dirname, "../../upload");
 
 const clampInt = (v, d) => {
   const n = Number(v);
@@ -20,11 +27,118 @@ async function getMerchantIdFromUser(userId) {
   return merchant?.id || null;
 }
 
+const normalizeMediaUrls = (value) => {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [value];
+    } catch {
+      return value ? [value] : [];
+    }
+  }
+  return [];
+};
+
+const mediaUrlToUploadFilePath = (url) => {
+  if (!url) return null;
+  const raw = String(url).trim();
+  if (!raw) return null;
+
+  let pathname = raw;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      pathname = new URL(raw).pathname || "";
+    } catch {
+      pathname = raw;
+    }
+  }
+
+  const normalized = pathname
+    .split("?")[0]
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
+
+  if (!normalized.toLowerCase().startsWith("uploads/")) return null;
+
+  const fullPath = path.resolve(UPLOAD_ROOT, normalized);
+  const uploadsDir = path.resolve(UPLOAD_ROOT, "uploads");
+  if (!fullPath.startsWith(uploadsDir)) return null;
+  return fullPath;
+};
+
+const deleteStoryMediaFiles = async (story) => {
+  const mediaUrls = normalizeMediaUrls(story?.mediaUrls);
+  await Promise.all(
+    mediaUrls.map(async (url) => {
+      const filePath = mediaUrlToUploadFilePath(url);
+      if (!filePath) return;
+      try {
+        await fs.unlink(filePath);
+      } catch (err) {
+        if (err?.code !== "ENOENT") {
+          console.error("deleteStoryMediaFiles unlink error:", err.message || err);
+        }
+      }
+    })
+  );
+};
+
+const purgeExpiredStories = async () => {
+  const expiredStories = await Story.findAll({
+    where: { expiresAt: { [Op.lte]: now() } },
+    attributes: ["id", "mediaUrls"],
+  });
+  if (!expiredStories.length) return 0;
+
+  for (const story of expiredStories) {
+    await deleteStoryMediaFiles(story);
+  }
+
+  await Story.destroy({ where: { id: expiredStories.map((s) => s.id) } });
+  return expiredStories.length;
+};
+
+const getStoryPostFee = async () => {
+  const toSafeFee = (v) => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const row = await AppSetting.findByPk("storyPostFee");
+  if (!row) return 0;
+  try {
+    const parsed = JSON.parse(row.value);
+    return toSafeFee(parsed);
+  } catch {
+    return toSafeFee(row.value);
+  }
+};
+
+const getStoryDurationHours = async () => {
+  const row = await AppSetting.findByPk("storyDurationHours");
+  if (!row) return 24;
+
+  let raw = row.value;
+  try {
+    raw = JSON.parse(row.value);
+  } catch {}
+
+  const n = Math.round(Number(raw));
+  return Number.isFinite(n) && n >= 24 ? n : 24;
+};
+
+const getBDDateString = () => {
+  const nowDt = new Date();
+  const bd = new Date(nowDt.toLocaleString("en-US", { timeZone: "Asia/Dhaka" }));
+  return bd.toISOString().slice(0, 10);
+};
+
 /**
  * ✅ POST /api/stories  (protected, merchant only)
- * body: { title?, mediaUrls:[], expiryHours? }
+ * body: { title?, mediaUrls:[] } // duration is fixed by admin setting
  */
 exports.createStory = async (req, res) => {
+  let uploadedUrls = [];
   try {
     const userId = req.user?.id || req.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -34,29 +148,107 @@ exports.createStory = async (req, res) => {
       return res.status(403).json({ success: false, message: "Only merchant can create story" });
     }
 
-    const { title, mediaUrls, expiryHours = 24 } = req.body || {};
+    const { title, mediaUrls, productId } = req.body || {};
     const urls = Array.isArray(mediaUrls) ? mediaUrls.filter(Boolean) : [];
+    uploadedUrls = urls;
 
     if (!urls.length) {
       return res.status(400).json({ success: false, message: "mediaUrls is required" });
     }
 
-    const hours = clampInt(expiryHours, 24);
-    const safeHours = Math.min(Math.max(hours, 1), 168); // 1h - 7days
+    const safeHours = await getStoryDurationHours();
     const expiresAt = new Date(Date.now() + safeHours * 60 * 60 * 1000);
+    const normalizedProductId = Number(productId || 0);
+    const linkedProductId = Number.isFinite(normalizedProductId) && normalizedProductId > 0 ? normalizedProductId : null;
 
-    const story = await Story.create({
-      merchantId,
-      title: title?.trim() || null,
-      mediaUrls: urls,
-      expiresAt,
-      isActive: true,
+    if (linkedProductId) {
+      const storeProduct = await MerchentStore.findOne({
+        where: { id: linkedProductId, merchantId: userId },
+        attributes: ["id"],
+      });
+      if (!storeProduct) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected product is invalid for this merchant",
+        });
+      }
+    }
+
+    const storyFee = await getStoryPostFee();
+
+    const story = await sequelize.transaction(async (t) => {
+      if (storyFee > 0) {
+        const user = await User.findByPk(userId, {
+          attributes: ["id", "balance"],
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        });
+        if (!user) {
+          const err = new Error("Unauthorized");
+          err.statusCode = 401;
+          throw err;
+        }
+
+        const currentBalance = Number(user.balance || 0);
+        if (currentBalance < storyFee) {
+          const err = new Error(`Insufficient balance. Story fee is BDT ${storyFee}`);
+          err.statusCode = 400;
+          err.code = "INSUFFICIENT_BALANCE";
+          throw err;
+        }
+
+        user.balance = currentBalance - storyFee;
+        await user.save({ transaction: t });
+      }
+
+      const created = await Story.create(
+        {
+          merchantId,
+          title: title?.trim() || null,
+          productId: linkedProductId,
+          mediaUrls: urls,
+          expiresAt,
+          isActive: true,
+        },
+        { transaction: t }
+      );
+
+      if (linkedProductId) {
+        const statDate = getBDDateString();
+        const [row] = await ProductDailyStat.findOrCreate({
+          where: { productId: linkedProductId, statDate },
+          defaults: {
+            productId: linkedProductId,
+            statDate,
+            views: 0,
+            addToCart: 0,
+            purchases: 0,
+            soldQty: 0,
+            revenue: 0,
+          },
+          transaction: t,
+        });
+        await row.increment("views", { by: 1, transaction: t });
+      }
+
+      return created;
     });
 
-    return res.json({ success: true, message: "Story created", story });
+    return res.json({
+      success: true,
+      message: "Story created",
+      story,
+      feeCharged: storyFee,
+      durationHours: safeHours,
+    });
   } catch (e) {
+    if (uploadedUrls.length) {
+      await deleteStoryMediaFiles({ mediaUrls: uploadedUrls });
+    }
     console.error("createStory error:", e);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res
+      .status(e.statusCode || 500)
+      .json({ success: false, message: e.statusCode ? e.message : "Server error" });
   }
 };
 
@@ -66,6 +258,7 @@ exports.createStory = async (req, res) => {
  */
 exports.getStoryFeed = async (req, res) => {
   try {
+    await purgeExpiredStories();
     const limit = Math.min(Math.max(Number(req.query.limit || 30), 1), 100);
 
     const rows = await Story.findAll({
@@ -98,6 +291,7 @@ exports.getStoryFeed = async (req, res) => {
  */
 exports.getMyStories = async (req, res) => {
   try {
+    await purgeExpiredStories();
     const userId = req.user?.id || req.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
@@ -118,7 +312,7 @@ exports.getMyStories = async (req, res) => {
 
 /**
  * ✅ PATCH /api/stories/:id  (protected, merchant only)
- * body: { isActive?, title?, expiresAt? }
+ * body: { isActive?, title? }
  */
 exports.updateStory = async (req, res) => {
   try {
@@ -144,11 +338,10 @@ exports.updateStory = async (req, res) => {
     if (title !== undefined) story.title = String(title).trim() || null;
 
     if (expiresAt !== undefined) {
-      const dt = new Date(expiresAt);
-      if (Number.isNaN(dt.getTime())) {
-        return res.status(400).json({ success: false, message: "Invalid expiresAt" });
-      }
-      story.expiresAt = dt;
+      return res.status(400).json({
+        success: false,
+        message: "Story expiry is fixed by admin setting and cannot be changed",
+      });
     }
 
     await story.save();
@@ -180,6 +373,7 @@ exports.deleteStory = async (req, res) => {
       return res.status(404).json({ success: false, message: "Story not found" });
     }
 
+    await deleteStoryMediaFiles(story);
     await story.destroy();
     return res.json({ success: true, message: "Story deleted" });
   } catch (e) {

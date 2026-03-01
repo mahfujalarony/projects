@@ -1,8 +1,12 @@
 const Product = require('../models/Product');
 const User = require('../models/Authentication');
 const MerchentStore = require('../models/MerchentStore');
+const ProductDailyStat = require('../models/ProductDailyStat');
+const Category = require('../models/Category');
+const SubCategory = require('../models/SubCategory');
 const { Op, Sequelize } = require('sequelize');
-const sequelize = require('../config/db');
+const RANK_CACHE_TTL_MS = 30 * 1000;
+const rankCache = new Map();
 
 const BN_DIGIT_MAP = {
   "\u09E6": "0",
@@ -59,7 +63,352 @@ const buildTermOrConditions = (term) => {
     { category: { [Op.like]: likeTerm } },
     { subCategory: { [Op.like]: likeTerm } },
     { description: { [Op.like]: likeTerm } },
+    Sequelize.where(Sequelize.literal("LOWER(CAST(`keywords` AS CHAR))"), { [Op.like]: likeTerm }),
   ];
+};
+
+const attachMerchantSummary = async (rows = []) => {
+  const source = Array.isArray(rows) ? rows : [];
+  if (!source.length) return [];
+
+  const baseRows = source.map((row) => (typeof row?.toJSON === "function" ? row.toJSON() : row));
+  const merchantIds = [...new Set(baseRows.map((r) => Number(r?.merchantId)).filter((id) => Number.isFinite(id) && id > 0))];
+
+  if (!merchantIds.length) {
+    return baseRows.map((r) => ({ ...r, merchant: null }));
+  }
+
+  const merchants = await User.findAll({
+    where: { id: merchantIds },
+    attributes: ["id", "name", "imageUrl"],
+    raw: true,
+  });
+
+  const merchantMap = new Map(merchants.map((m) => [Number(m.id), m]));
+  return baseRows.map((r) => ({
+    ...r,
+    merchant: merchantMap.get(Number(r.merchantId)) || null,
+  }));
+};
+
+const num = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+
+const discountPct = (row = {}) => {
+  const p = num(row.price, 0);
+  const o = num(row.oldPrice, 0);
+  if (o > p && p > 0) return ((o - p) / o) * 100;
+  return 0;
+};
+
+const recencyBoost = (row = {}) => {
+  const createdAt = row?.createdAt ? new Date(row.createdAt).getTime() : 0;
+  if (!createdAt) return 0;
+  const ageDays = (Date.now() - createdAt) / (1000 * 60 * 60 * 24);
+  return Math.max(0, 30 - ageDays);
+};
+
+const buildRecentTrendMap = async (rows = []) => {
+  const ids = [...new Set((rows || []).map((r) => num(r?.id, 0)).filter((id) => id > 0))];
+  if (!ids.length) return new Map();
+
+  const since = new Date();
+  since.setDate(since.getDate() - 7);
+  const sinceDate = since.toISOString().slice(0, 10);
+
+  const stats = await ProductDailyStat.findAll({
+    where: {
+      productId: { [Op.in]: ids },
+      statDate: { [Op.gte]: sinceDate },
+    },
+    attributes: [
+      "productId",
+      [Sequelize.fn("SUM", Sequelize.col("views")), "views"],
+      [Sequelize.fn("SUM", Sequelize.col("addToCart")), "addToCart"],
+      [Sequelize.fn("SUM", Sequelize.col("purchases")), "purchases"],
+      [Sequelize.fn("SUM", Sequelize.col("soldQty")), "soldQty"],
+      [Sequelize.fn("SUM", Sequelize.col("revenue")), "revenue"],
+    ],
+    group: ["productId"],
+    raw: true,
+  });
+
+  const map = new Map();
+  for (const s of stats) {
+    const pid = num(s.productId, 0);
+    if (!pid) continue;
+    map.set(pid, {
+      views: num(s.views, 0),
+      addToCart: num(s.addToCart, 0),
+      purchases: num(s.purchases, 0),
+      soldQty: num(s.soldQty, 0),
+      revenue: num(s.revenue, 0),
+    });
+  }
+  return map;
+};
+
+const trendScore = (row = {}, trendMap = new Map()) => {
+  const t = trendMap.get(num(row.id, 0)) || {};
+  return (
+    num(t.purchases, 0) * 80 +
+    num(t.soldQty, 0) * 25 +
+    num(t.addToCart, 0) * 8 +
+    num(t.views, 0) * 1 +
+    num(t.revenue, 0) * 0.02
+  );
+};
+
+const hasTrendSignal = (row = {}, trendMap = new Map()) => {
+  const t = trendMap.get(num(row.id, 0)) || {};
+  return (
+    num(t.views, 0) > 0 ||
+    num(t.addToCart, 0) > 0 ||
+    num(t.purchases, 0) > 0 ||
+    num(t.soldQty, 0) > 0 ||
+    num(t.revenue, 0) > 0
+  );
+};
+
+const rowScore = (row = {}, sort = "smart", trendMap = new Map()) => {
+  const rating = num(row.averageRating, 0);
+  const reviews = num(row.totalReviews, 0);
+  const sold = num(row.soldCount, 0);
+  const price = num(row.price, 0);
+  const disc = discountPct(row);
+  const fresh = recencyBoost(row);
+  const trend = trendScore(row, trendMap);
+
+  switch (sort) {
+    case "newest":
+      return row?.createdAt ? new Date(row.createdAt).getTime() : 0;
+    case "oldest":
+      return -1 * (row?.createdAt ? new Date(row.createdAt).getTime() : 0);
+    case "price_low":
+      return -price;
+    case "price_high":
+      return price;
+    case "rating":
+      return rating * 1000 + reviews * 2 + trend * 0.05;
+    case "discount":
+      return disc * 100 + trend * 0.1 + fresh;
+    case "popular":
+      return trend + sold * 5 + rating * 8 + reviews * 0.2;
+    case "smart":
+    default:
+      return (
+        trend * 1 +
+        rating * 28 +
+        Math.min(reviews, 200) * 0.35 +
+        Math.min(sold, 1000) * 0.08 +
+        disc * 0.9 +
+        fresh * 0.12
+      );
+  }
+};
+
+const collapseAndRankByBaseProduct = (rows = [], sort = "smart", trendMap = new Map()) => {
+  const source = (rows || []).map((row) => (typeof row?.toJSON === "function" ? row.toJSON() : row));
+  const bestByBase = new Map();
+
+  for (const row of source) {
+    const baseId = num(row.productId, 0) || num(row.id, 0);
+    if (!baseId) continue;
+    const currentBest = bestByBase.get(baseId);
+    if (!currentBest) {
+      bestByBase.set(baseId, row);
+      continue;
+    }
+    const currentScore = rowScore(row, sort, trendMap);
+    const bestScore = rowScore(currentBest, sort, trendMap);
+    if (currentScore > bestScore) {
+      bestByBase.set(baseId, row);
+    } else if (currentScore === bestScore) {
+      const currentCreated = row?.createdAt ? new Date(row.createdAt).getTime() : 0;
+      const bestCreated = currentBest?.createdAt ? new Date(currentBest.createdAt).getTime() : 0;
+      if (currentCreated > bestCreated || (currentCreated === bestCreated && num(row.id, 0) < num(currentBest.id, 0))) {
+        bestByBase.set(baseId, row);
+      }
+    }
+  }
+
+  const ranked = Array.from(bestByBase.values()).sort((a, b) => {
+    // In ranking-driven lists, products with real interaction history come first.
+    if (sort === "smart" || sort === "popular") {
+      const aHasTrend = hasTrendSignal(a, trendMap) ? 1 : 0;
+      const bHasTrend = hasTrendSignal(b, trendMap) ? 1 : 0;
+      if (aHasTrend !== bHasTrend) return bHasTrend - aHasTrend;
+    }
+
+    const sa = rowScore(a, sort, trendMap);
+    const sb = rowScore(b, sort, trendMap);
+    if (sa !== sb) return sb - sa;
+    const aCreated = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bCreated = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (aCreated !== bCreated) return bCreated - aCreated;
+    return num(a.id, 0) - num(b.id, 0);
+  });
+
+  return ranked;
+};
+
+const rankRowsWithoutCollapse = (rows = [], sort = "smart", trendMap = new Map()) => {
+  const source = (rows || []).map((row) => (typeof row?.toJSON === "function" ? row.toJSON() : row));
+  return source.sort((a, b) => {
+    if (sort === "smart" || sort === "popular") {
+      const aHasTrend = hasTrendSignal(a, trendMap) ? 1 : 0;
+      const bHasTrend = hasTrendSignal(b, trendMap) ? 1 : 0;
+      if (aHasTrend !== bHasTrend) return bHasTrend - aHasTrend;
+    }
+
+    const sa = rowScore(a, sort, trendMap);
+    const sb = rowScore(b, sort, trendMap);
+    if (sa !== sb) return sb - sa;
+
+    const aCreated = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bCreated = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (aCreated !== bCreated) return bCreated - aCreated;
+    return num(a.id, 0) - num(b.id, 0);
+  });
+};
+
+const cleanupRankCache = () => {
+  const now = Date.now();
+  for (const [key, entry] of rankCache.entries()) {
+    if (!entry || now - entry.createdAt > RANK_CACHE_TTL_MS) {
+      rankCache.delete(key);
+    }
+  }
+};
+
+const fetchRankedPublicRows = async ({
+  where,
+  sort,
+  offset,
+  limit,
+  mode = "unique",
+  snapshotAt,
+  cacheKey,
+}) => {
+  cleanupRankCache();
+  const cached = cacheKey ? rankCache.get(cacheKey) : null;
+  if (cached && Date.now() - cached.createdAt <= RANK_CACHE_TTL_MS) {
+    return {
+      rows: cached.rankedRows.slice(offset, offset + limit),
+      total: cached.total,
+    };
+  }
+
+  const snapshotDate = new Date(Number(snapshotAt) || Date.now());
+  const effectiveWhere = {
+    ...where,
+    updatedAt: {
+      ...(where.updatedAt || {}),
+      [Op.lte]: snapshotDate,
+    },
+  };
+
+  const uniqueTotal = await MerchentStore.count({
+    where: effectiveWhere,
+    distinct: true,
+    col: "productId",
+  });
+  const allTotal = await MerchentStore.count({ where: effectiveWhere });
+
+  if ((mode === "all" ? allTotal : uniqueTotal) === 0) return { rows: [], total: 0 };
+
+  const rawRows = await MerchentStore.findAll({
+    where: effectiveWhere,
+    order: [["updatedAt", "DESC"], ["id", "DESC"]],
+  });
+
+  const trendMap = await buildRecentTrendMap(rawRows);
+  const ranked = mode === "all"
+    ? rankRowsWithoutCollapse(rawRows, sort, trendMap)
+    : collapseAndRankByBaseProduct(rawRows, sort, trendMap);
+  const total = mode === "all" ? allTotal : uniqueTotal;
+
+  if (cacheKey) {
+    rankCache.set(cacheKey, {
+      createdAt: Date.now(),
+      total,
+      rankedRows: ranked,
+    });
+  }
+
+  return { rows: ranked.slice(offset, offset + limit), total };
+};
+
+const collectDescendantSubCategorySlugs = (list = [], rootIds = new Set()) => {
+  const rows = Array.isArray(list) ? list : [];
+  if (!rows.length || !rootIds.size) return [];
+
+  const childrenByParent = new Map();
+  for (const row of rows) {
+    const parentId = Number(row.parentSubCategoryId || 0);
+    if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+    childrenByParent.get(parentId).push(row);
+  }
+
+  const slugs = new Set();
+  const queue = [...rootIds];
+  const visited = new Set();
+
+  while (queue.length) {
+    const currentId = Number(queue.shift());
+    if (!currentId || visited.has(currentId)) continue;
+    visited.add(currentId);
+
+    const current = rows.find((x) => Number(x.id) === currentId);
+    const currentSlug = String(current?.slug || "").trim();
+    if (currentSlug) slugs.add(currentSlug);
+
+    const children = childrenByParent.get(currentId) || [];
+    for (const child of children) queue.push(Number(child.id));
+  }
+
+  return Array.from(slugs);
+};
+
+const resolveSubCategoryScope = async ({ categorySlug = "", subCategorySlug = "" }) => {
+  const cleanSub = String(subCategorySlug || "").trim();
+  const cleanCategory = String(categorySlug || "").trim();
+  if (!cleanSub) return [];
+
+  let categoryIds = [];
+  if (cleanCategory) {
+    const cat = await Category.findOne({
+      where: { slug: cleanCategory },
+      attributes: ["id"],
+      raw: true,
+    });
+    if (!cat?.id) return [cleanSub];
+    categoryIds = [Number(cat.id)];
+  }
+
+  const where = { slug: cleanSub };
+  if (categoryIds.length) where.categoryId = { [Op.in]: categoryIds };
+
+  const roots = await SubCategory.findAll({
+    where,
+    attributes: ["id", "categoryId", "slug"],
+    raw: true,
+  });
+
+  if (!roots.length) return [cleanSub];
+
+  const scopedCategoryIds = [...new Set(roots.map((r) => Number(r.categoryId)).filter(Boolean))];
+  const treeRows = await SubCategory.findAll({
+    where: { categoryId: { [Op.in]: scopedCategoryIds } },
+    attributes: ["id", "parentSubCategoryId", "slug", "categoryId"],
+    raw: true,
+  });
+
+  const rootIds = new Set(roots.map((r) => Number(r.id)).filter(Boolean));
+  const slugs = collectDescendantSubCategorySlugs(treeRows, rootIds);
+  return slugs.length ? slugs : [cleanSub];
 };
 
 
@@ -73,6 +422,8 @@ exports.getPublicProducts = async (req, res) => {
       category = "",
       subCategory = "",
       sort = "smart",
+      mode = "unique",
+      snapshotAt = "",
     } = req.query;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -89,7 +440,13 @@ exports.getPublicProducts = async (req, res) => {
       where.category = category.trim();
     }
     if (subCategory && subCategory.trim()) {
-      where.subCategory = subCategory.trim();
+      const nestedSubCategorySlugs = await resolveSubCategoryScope({
+        categorySlug: category,
+        subCategorySlug: subCategory,
+      });
+      where.subCategory = nestedSubCategorySlugs.length > 1
+        ? { [Op.in]: nestedSubCategorySlugs }
+        : nestedSubCategorySlugs[0];
     }
 
     // search by name/category
@@ -97,77 +454,50 @@ exports.getPublicProducts = async (req, res) => {
       where[Op.or] = [
         { name: { [Op.like]: `%${search.trim()}%` } },
         { category: { [Op.like]: `%${search.trim()}%` } },
+        { subCategory: { [Op.like]: `%${search.trim()}%` } },
+        Sequelize.where(
+          Sequelize.literal("LOWER(CAST(`keywords` AS CHAR))"),
+          { [Op.like]: `%${search.trim().toLowerCase()}%` }
+        ),
       ];
     }
 
-    // Real e-commerce style ranking:
-    // score = rating + review confidence + sold count + discount + freshness.
-    const smartScore = Sequelize.literal(`
-      (
-        (COALESCE(averageRating, 0) * 28)
-        + (LEAST(COALESCE(totalReviews, 0), 200) * 0.35)
-        + (LEAST(COALESCE(soldCount, 0), 1000) * 0.08)
-        + (
-            CASE
-              WHEN COALESCE(oldPrice, 0) > COALESCE(price, 0) AND COALESCE(price, 0) > 0
-              THEN ((oldPrice - price) / oldPrice) * 100 * 0.9
-              ELSE 0
-            END
-          )
-        + (GREATEST(0, 30 - TIMESTAMPDIFF(DAY, createdAt, NOW())) * 0.12)
-      )
-    `);
-
-    const orderBySort = {
-      smart: [
-        [smartScore, "DESC"],
-        // deterministic mix for discovery, pagination-safe (no true random jump)
-        [Sequelize.literal("MOD(id * 17, 97)"), "ASC"],
-        ["createdAt", "DESC"],
-        ["id", "ASC"],
-      ],
-      newest: [["createdAt", "DESC"], ["id", "ASC"]],
-      oldest: [["createdAt", "ASC"], ["id", "ASC"]],
-      price_low: [["price", "ASC"], ["id", "ASC"]],
-      price_high: [["price", "DESC"], ["id", "ASC"]],
-      rating: [["averageRating", "DESC"], ["totalReviews", "DESC"], ["id", "ASC"]],
-      discount: [
-        [
-          Sequelize.literal(`
-            CASE
-              WHEN COALESCE(oldPrice, 0) > COALESCE(price, 0) AND COALESCE(price, 0) > 0
-              THEN ((oldPrice - price) / oldPrice) * 100
-              ELSE 0
-            END
-          `),
-          "DESC",
-        ],
-        ["createdAt", "DESC"],
-        ["id", "ASC"],
-      ],
-      popular: [["soldCount", "DESC"], ["averageRating", "DESC"], ["createdAt", "DESC"], ["id", "ASC"]],
-    };
-
     const selectedSort = String(sort || "smart").toLowerCase();
-    const order = orderBySort[selectedSort] || orderBySort.smart;
-
-    const { rows, count } = await MerchentStore.findAndCountAll({
-      where,
-      order,
-      limit: limitNum,
-      offset,
+    const selectedMode = String(mode || "unique").toLowerCase() === "all" ? "all" : "unique";
+    const snapshotTs = Number(snapshotAt) > 0 ? Number(snapshotAt) : Date.now();
+    const cacheKey = JSON.stringify({
+      selectedSort,
+      selectedMode,
+      category: category || "",
+      subCategory: subCategory || "",
+      search: search || "",
+      snapshotTs,
     });
 
+    const { rows, total } = await fetchRankedPublicRows({
+      where,
+      sort: selectedSort,
+      offset,
+      limit: limitNum,
+      mode: selectedMode,
+      snapshotAt: snapshotTs,
+      cacheKey,
+    });
+
+    const rowsWithMerchant = await attachMerchantSummary(rows);
+
     return res.json({
-      data: rows,
+      data: rowsWithMerchant,
       meta: {
         sort: selectedSort,
-        total: count,
+        mode: selectedMode,
+        total,
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(count / limitNum),
-        hasNext: pageNum * limitNum < count,
+        totalPages: Math.ceil(total / limitNum),
+        hasNext: pageNum * limitNum < total,
         hasPrev: pageNum > 1,
+        snapshotAt: snapshotTs,
       },
     });
   } catch (err) {
@@ -224,6 +554,87 @@ exports.getPublicProductById = async (req, res) => {
   }
 };
 
+exports.getRelatedPublicProducts = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 24);
+
+    const current = await MerchentStore.findOne({
+      where: { id, stock: { [Op.gt]: 0 } },
+      attributes: ["id", "category", "subCategory", "merchantId"],
+    });
+
+    if (!current) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const baseWhere = {
+      id: { [Op.ne]: current.id },
+      stock: { [Op.gt]: 0 },
+    };
+
+    const subCategory = String(current.subCategory || "").trim();
+    const category = String(current.category || "").trim();
+
+    let rows = [];
+
+    if (subCategory) {
+      rows = await MerchentStore.findAll({
+        where: { ...baseWhere, subCategory },
+        order: [
+          ["averageRating", "DESC"],
+          ["totalReviews", "DESC"],
+          ["soldCount", "DESC"],
+          ["createdAt", "DESC"],
+        ],
+        limit,
+      });
+    }
+
+    if (rows.length < limit && category) {
+      const excludeIds = [current.id, ...rows.map((r) => r.id)];
+      const more = await MerchentStore.findAll({
+        where: {
+          ...baseWhere,
+          category,
+          id: { [Op.notIn]: excludeIds },
+        },
+        order: [
+          ["averageRating", "DESC"],
+          ["totalReviews", "DESC"],
+          ["soldCount", "DESC"],
+          ["createdAt", "DESC"],
+        ],
+        limit: limit - rows.length,
+      });
+      rows = [...rows, ...more];
+    }
+
+    if (rows.length < limit && current.merchantId) {
+      const excludeIds = [current.id, ...rows.map((r) => r.id)];
+      const more = await MerchentStore.findAll({
+        where: {
+          ...baseWhere,
+          merchantId: current.merchantId,
+          id: { [Op.notIn]: excludeIds },
+        },
+        order: [["createdAt", "DESC"]],
+        limit: limit - rows.length,
+      });
+      rows = [...rows, ...more];
+    }
+
+    return res.json({
+      success: true,
+      products: rows,
+      relatedBy: subCategory ? "subCategory" : category ? "category" : "merchant",
+    });
+  } catch (err) {
+    console.error("getRelatedPublicProducts error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 //search
 
 
@@ -238,7 +649,6 @@ exports.search = async (req, res) => {
 
     const baseTerms = normalizedQuery.split(" ").filter(Boolean).slice(0, 8);
     const expandedTerms = expandSearchTerms(query);
-    const secondaryTerms = expandedTerms.filter((t) => !baseTerms.includes(t));
 
     if (!normalizedQuery) {
       return res.status(200).json({
@@ -276,103 +686,37 @@ exports.search = async (req, res) => {
       [Op.or]: expandedTerms.flatMap((term) => buildTermOrConditions(term)),
     };
 
-    const scoreParts = [];
-
-    // Full query phrase boosts (very important for relevance)
-    const phraseExact = sequelize.escape(normalizedQuery);
-    const phraseStarts = sequelize.escape(`${normalizedQuery}%`);
-    const phraseContains = sequelize.escape(`%${normalizedQuery}%`);
-    scoreParts.push(`(CASE WHEN LOWER(name) = ${phraseExact} THEN 320 ELSE 0 END)`);
-    scoreParts.push(`(CASE WHEN LOWER(name) LIKE ${phraseStarts} THEN 210 ELSE 0 END)`);
-    scoreParts.push(`(CASE WHEN LOWER(name) LIKE ${phraseContains} THEN 120 ELSE 0 END)`);
-    scoreParts.push(`(CASE WHEN LOWER(category) LIKE ${phraseContains} THEN 40 ELSE 0 END)`);
-    scoreParts.push(`(CASE WHEN LOWER(subCategory) LIKE ${phraseContains} THEN 35 ELSE 0 END)`);
-
-    for (const term of baseTerms) {
-      const exact = sequelize.escape(term);
-      const starts = sequelize.escape(`${term}%`);
-      const contains = sequelize.escape(`%${term}%`);
-
-      scoreParts.push(`(CASE WHEN LOWER(name) = ${exact} THEN 180 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(name) LIKE ${starts} THEN 100 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(name) LIKE ${contains} THEN 55 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(category) LIKE ${contains} THEN 22 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(subCategory) LIKE ${contains} THEN 18 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(description) LIKE ${contains} THEN 10 ELSE 0 END)`);
-    }
-
-    // Expanded/synonym terms are weaker signals than base typed terms
-    for (const term of secondaryTerms) {
-      const contains = sequelize.escape(`%${term}%`);
-      scoreParts.push(`(CASE WHEN LOWER(name) LIKE ${contains} THEN 18 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(category) LIKE ${contains} THEN 10 ELSE 0 END)`);
-      scoreParts.push(`(CASE WHEN LOWER(subCategory) LIKE ${contains} THEN 8 ELSE 0 END)`);
-    }
-
-    // quality/business signals
-    scoreParts.push("(COALESCE(averageRating, 0) * 16)");
-    scoreParts.push("(LEAST(COALESCE(totalReviews, 0), 200) * 0.18)");
-    scoreParts.push("(LEAST(COALESCE(soldCount, 0), 2000) * 0.04)");
-    scoreParts.push(`(
-      CASE
-        WHEN COALESCE(oldPrice, 0) > COALESCE(price, 0) AND COALESCE(price, 0) > 0
-        THEN ((oldPrice - price) / oldPrice) * 100 * 0.6
-        ELSE 0
-      END
-    )`);
-    scoreParts.push("(GREATEST(0, 30 - TIMESTAMPDIFF(DAY, createdAt, NOW())) * 0.1)");
-
-    const searchScore = Sequelize.literal(`(${scoreParts.join(" + ")})`);
-    const orderBySort = {
-      smart: [[searchScore, "DESC"], ["soldCount", "DESC"], ["id", "ASC"]],
-      newest: [["createdAt", "DESC"], ["id", "ASC"]],
-      price_low: [["price", "ASC"], ["id", "ASC"]],
-      price_high: [["price", "DESC"], ["id", "ASC"]],
-      rating: [["averageRating", "DESC"], ["totalReviews", "DESC"], ["id", "ASC"]],
-    };
-    const order = orderBySort[sort] || orderBySort.smart;
-
     const runSearch = async (where) =>
-      MerchentStore.findAndCountAll({
-      where,
-      order,
-      limit: limitNum,
-      offset,
-      distinct: true,
-    });
+      fetchRankedPublicRows({
+        where,
+        sort,
+        offset,
+        limit: limitNum,
+      });
 
     let strategy = "strict";
-    let { rows, count } = await runSearch(strictWhere);
+    let { rows, total } = await runSearch(strictWhere);
 
-    if (count === 0 && expandedTerms.length > 0) {
+    if (total === 0 && expandedTerms.length > 0) {
       strategy = "relaxed";
       const fallback = await runSearch(relaxedWhere);
       rows = fallback.rows;
-      count = fallback.count;
+      total = fallback.total;
     }
-
-    // safety: avoid duplicates even if database joins/edge-cases produce any
-    const uniqueRows = [];
-    const seen = new Set();
-    for (const row of rows) {
-      const id = Number(row.id);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      uniqueRows.push(row);
-    }
+    const uniqueRowsWithMerchant = await attachMerchantSummary(rows);
 
     return res.status(200).json({
       success: true,
       query: query || null,
-      data: uniqueRows,
-      products: uniqueRows,
+      data: uniqueRowsWithMerchant,
+      products: uniqueRowsWithMerchant,
       meta: {
         sort,
         page: pageNum,
         limit: limitNum,
-        total: count,
-        totalPages: Math.ceil(count / limitNum),
-        hasNext: pageNum * limitNum < count,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+        hasNext: pageNum * limitNum < total,
         hasPrev: pageNum > 1,
         strategy,
         terms: expandedTerms,
@@ -396,16 +740,77 @@ exports.search = async (req, res) => {
 exports.createProduct = async (req, res) => {
     try {
         const body = req.body || {};
-        
+
         console.log("Received product data:", body);
+        const requestedCategoryId = Number(body.categoryId);
+        const requestedSubCategoryId = Number(body.subCategoryId);
+
+        const categoryById = Number.isFinite(requestedCategoryId) && requestedCategoryId > 0
+          ? await Category.findByPk(requestedCategoryId, { attributes: ["id", "name", "slug"] })
+          : null;
+
+        const categoryBySlug = !categoryById && body.category
+          ? await Category.findOne({
+              where: {
+                [Op.or]: [
+                  { slug: String(body.category).trim() },
+                  { name: String(body.category).trim() },
+                ],
+              },
+              attributes: ["id", "name", "slug"],
+            })
+          : null;
+
+        let resolvedCategory = categoryById || categoryBySlug || null;
+
+        let resolvedSubCategory = null;
+        if (Number.isFinite(requestedSubCategoryId) && requestedSubCategoryId > 0) {
+          resolvedSubCategory = await SubCategory.findByPk(requestedSubCategoryId, {
+            attributes: ["id", "categoryId", "name", "slug"],
+          });
+        } else if (body.subCategory) {
+          const subWhere = {
+            [Op.or]: [
+              { slug: String(body.subCategory).trim() },
+              { name: String(body.subCategory).trim() },
+            ],
+          };
+          if (resolvedCategory?.id) subWhere.categoryId = Number(resolvedCategory.id);
+          resolvedSubCategory = await SubCategory.findOne({
+            where: subWhere,
+            attributes: ["id", "categoryId", "name", "slug"],
+          });
+        }
+
+        if (!resolvedCategory && resolvedSubCategory?.categoryId) {
+          resolvedCategory = await Category.findByPk(Number(resolvedSubCategory.categoryId), {
+            attributes: ["id", "name", "slug"],
+          });
+        }
+
+        if (!resolvedCategory) {
+          return res.status(400).json({ message: "Valid category is required." });
+        }
+
+        if (
+          resolvedSubCategory &&
+          Number(resolvedSubCategory.categoryId) !== Number(resolvedCategory.id)
+        ) {
+          return res.status(400).json({
+            message: "Selected subcategory does not belong to selected category.",
+          });
+        }
+
         const productData = {
             name: body.name,
             description: body.description,
             price:  body.price ? parseFloat(body.price) : null,
             oldPrice: body.oldPrice ? parseFloat(body.oldPrice) : null,
             stock: parseInt(body.stock),
-            category: body.category,
-            subCategory: body.subCategory,
+            category: String(resolvedCategory.slug || resolvedCategory.name || "").trim() || null,
+            subCategory: resolvedSubCategory
+              ? String(resolvedSubCategory.slug || resolvedSubCategory.name || "").trim()
+              : null,
             images: Array.isArray(body.imageUrl) ? body.imageUrl : [],
         };
 

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Avatar, Button, Card, Empty, Form, Input, List, Space, Tag, Typography } from "antd";
-import { MessageOutlined, SendOutlined, UserOutlined } from "@ant-design/icons";
+import React, { useEffect, useRef, useState } from "react";
+import { Alert, Button, Empty, Form, Input, List, Tag, Typography } from "antd";
+import { MessageOutlined, SendOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { io } from "socket.io-client";
 import { CHAT_BASE_URL } from "../../config/env";
@@ -24,11 +24,14 @@ const GuestSupportChat = () => {
   const token = session?.token;
   const isBlocked = !!session?.conversation?.isBlocked;
 
-  const guestLabel = useMemo(() => {
-    const c = session?.conversation;
-    if (!c) return "";
-    return c.guestName || c.guestEmail || c.guestPhone || "Guest";
-  }, [session]);
+  const clearGuestSession = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setSession(null);
+    setMessages([]);
+    setText("");
+    form.resetFields();
+    setError("");
+  };
 
   useEffect(() => {
     try {
@@ -104,7 +107,13 @@ const GuestSupportChat = () => {
           return next;
         });
       })
-      .catch(() => {});
+      .catch((err) => {
+        const status = Number(err?.response?.status || 0);
+        const msg = String(err?.response?.data?.message || err?.message || "").toLowerCase();
+        if (status === 404 || msg.includes("conversation not found")) {
+          clearGuestSession();
+        }
+      });
 
     setLoadingMessages(true);
     axios
@@ -115,7 +124,15 @@ const GuestSupportChat = () => {
       .then((res) => {
         if (res.data?.success) setMessages(res.data.rows || []);
       })
-      .catch(() => setError("Failed to load support messages"))
+      .catch((err) => {
+        const status = Number(err?.response?.status || 0);
+        const msg = String(err?.response?.data?.message || err?.message || "").toLowerCase();
+        if (status === 404 || msg.includes("conversation not found")) {
+          clearGuestSession();
+          return;
+        }
+        setError("Failed to load support messages");
+      })
       .finally(() => setLoadingMessages(false));
   }, [conversationId, token]);
 
@@ -153,6 +170,11 @@ const GuestSupportChat = () => {
     }
     socket.emit("send_message", { conversationId: Number(conversationId), type: "text", body }, (ack) => {
       if (!ack?.ok || !ack?.message) {
+        const ackMsg = String(ack?.message || "").toLowerCase();
+        if (ackMsg.includes("conversation not found")) {
+          clearGuestSession();
+          return;
+        }
         setError(ack?.message || "Failed to send message");
         return;
       }
@@ -162,27 +184,37 @@ const GuestSupportChat = () => {
     });
   };
 
-  const resetGuestChat = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setSession(null);
-    setMessages([]);
-    setText("");
-    form.resetFields();
-  };
-
   return (
-    <div style={{ maxWidth: 860, margin: "24px auto", padding: "0 12px" }}>
-      <Card>
-        <Space direction="vertical" size={14} style={{ width: "100%" }}>
-          <Title level={4} style={{ margin: 0 }}>
-            Support Chat
-          </Title>
-          <Text type="secondary">Login/Register chara support team er sathe chat korte parben.</Text>
+    <div
+      style={{
+        maxWidth: 980,
+        margin: "0 auto",
+        padding: 0,
+        height: "calc(100dvh - 76px)",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              borderBottom: "1px solid #f0f0f0",
+              padding: "10px 12px",
+              flexShrink: 0,
+              background: "#fff",
+            }}
+          >
+            <MessageOutlined style={{ fontSize: 20, color: "#1677ff" }} />
+            <Title level={4} style={{ margin: 0 }}>
+              Support Chat
+            </Title>
+          </div>
 
-          {error && <Alert type="error" message={error} showIcon />}
+          {error && <Alert type="error" message={error} showIcon style={{ margin: 8 }} />}
 
           {!session ? (
-            <Form form={form} layout="vertical" onFinish={startSupport}>
+            <Form form={form} layout="vertical" onFinish={startSupport} style={{ padding: 12 }}>
               <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
                 <Input placeholder="Your name" />
               </Form.Item>
@@ -201,81 +233,144 @@ const GuestSupportChat = () => {
             </Form>
           ) : (
             <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <Space>
-                  <Avatar icon={<UserOutlined />} />
-                  <Text strong>{guestLabel}</Text>
-                  <Tag color="blue">Guest Session</Tag>
-                  {isBlocked && <Tag color="red">Blocked</Tag>}
-                </Space>
-                <Button danger type="text" onClick={resetGuestChat}>
-                  End Session
-                </Button>
-              </div>
+              {isBlocked && <Tag color="red">Blocked</Tag>}
               {isBlocked && (
                 <Alert
                   type="warning"
                   showIcon
                   message="This chat is blocked by admin. You cannot send new messages now."
+                  style={{ margin: 8 }}
                 />
               )}
 
-              <div
-                ref={wrapRef}
-                style={{
-                  maxHeight: "56vh",
-                  overflowY: "auto",
-                  background: "#f7f7f8",
-                  border: "1px solid #f0f0f0",
-                  borderRadius: 10,
-                  padding: 12,
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                  background: "#f8fafc",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
                 }}
               >
-                {loadingMessages ? (
-                  <Text type="secondary">Loading messages...</Text>
-                ) : !messages.length ? (
-                  <Empty description="No message yet" />
-                ) : (
-                  <List
-                    dataSource={messages}
-                    renderItem={(msg) => {
-                      const isMine = String(msg.senderId) === String(session?.conversation?.customerId);
-                      return (
-                        <List.Item style={{ justifyContent: isMine ? "flex-end" : "flex-start", border: "none", padding: "4px 0" }}>
-                          <div
+                <div
+                  ref={wrapRef}
+                  style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    padding: "10px 12px",
+                  }}
+                >
+                  {loadingMessages ? (
+                    <Text type="secondary">Loading messages...</Text>
+                  ) : !messages.length ? (
+                    <Empty description="Start a conversation" />
+                  ) : (
+                    <List
+                      dataSource={messages}
+                      renderItem={(msg) => {
+                        const isMine = String(msg.senderId) === String(session?.conversation?.customerId);
+                        return (
+                          <List.Item
                             style={{
-                              background: isMine ? "#1677ff" : "#fff",
-                              color: isMine ? "#fff" : "#111827",
-                              padding: "8px 12px",
-                              borderRadius: 10,
-                              maxWidth: "80%",
+                              justifyContent: isMine ? "flex-end" : "flex-start",
+                              border: "none",
+                              padding: "5px 0",
                             }}
                           >
-                            {msg.body}
-                          </div>
-                        </List.Item>
-                      );
-                    }}
-                  />
-                )}
-              </div>
+                            {isMine ? (
+                              <div
+                                style={{
+                                  background: "linear-gradient(135deg, #1677ff 0%, #1d4ed8 100%)",
+                                  color: "#ffffff",
+                                  padding: "9px 12px",
+                                  borderRadius: "14px 14px 4px 14px",
+                                  maxWidth: "82%",
+                                  wordBreak: "break-word",
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                {msg.body}
+                              </div>
+                            ) : (
+                              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, maxWidth: "84%" }}>
+                                <div
+                                  style={{
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: "50%",
+                                    background: "#dbeafe",
+                                    color: "#1d4ed8",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  S
+                                </div>
+                                <div
+                                  style={{
+                                    background: "#eef2f7",
+                                    color: "#111827",
+                                    padding: "9px 12px",
+                                    borderRadius: "14px 14px 14px 4px",
+                                    border: "1px solid #dbe3ee",
+                                    wordBreak: "break-word",
+                                    lineHeight: 1.45,
+                                  }}
+                                >
+                                  {msg.body}
+                                </div>
+                              </div>
+                            )}
+                          </List.Item>
+                        );
+                      }}
+                    />
+                  )}
+                </div>
 
-              <Space.Compact style={{ width: "100%" }}>
-                <Input
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="Type message..."
-                  onPressEnter={sendMessage}
-                  disabled={isBlocked}
-                />
-                <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} disabled={!String(text || "").trim() || isBlocked}>
-                  Send
-                </Button>
-              </Space.Compact>
+                <div
+                  style={{
+                    padding: 8,
+                    borderTop: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Input.TextArea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      placeholder="Type a message..."
+                      onPressEnter={(e) => {
+                        if (!e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      disabled={isBlocked}
+                      autoSize={{ minRows: 1, maxRows: 5 }}
+                      style={{ flex: 1, minWidth: 0 }}
+                    />
+                    <Button
+                      type="primary"
+                      icon={<SendOutlined />}
+                      onClick={sendMessage}
+                      disabled={!String(text || "").trim() || isBlocked}
+                      style={{ width: 92, alignSelf: "flex-end" }}
+                    >
+                      Send
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </>
           )}
-        </Space>
-      </Card>
+      </div>
     </div>
   );
 };

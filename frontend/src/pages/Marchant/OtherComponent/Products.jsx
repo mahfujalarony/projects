@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Button, Card, Input, message, Pagination, Select, Spin, Tag, Grid, Modal, Empty, Tooltip, InputNumber } from "antd";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Card, Input, message, Pagination, Select, Spin, Tag, Grid, Modal, Empty, Tooltip, InputNumber, TreeSelect } from "antd";
 import { EyeOutlined } from "@ant-design/icons";
 import { normalizeImageUrl } from "../../../utils/imageUrl";
 import { API_BASE_URL } from "../../../config/env";
@@ -13,6 +13,65 @@ const API_PICK = `${API_BASE_URL}/api/merchant/store/pick`;
 const { useBreakpoint } = Grid;
 
 const LIMIT = 12;
+const CATEGORY_CACHE_KEY = "merchant:categories:v1";
+const CATEGORY_CACHE_TTL = 1000 * 60 * 10;
+
+const readCategoryCache = () => {
+  try {
+    const raw = sessionStorage.getItem(CATEGORY_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts || !Array.isArray(parsed?.data)) return null;
+    if (Date.now() - Number(parsed.ts) > CATEGORY_CACHE_TTL) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+};
+
+const writeCategoryCache = (list) => {
+  try {
+    sessionStorage.setItem(
+      CATEGORY_CACHE_KEY,
+      JSON.stringify({
+        ts: Date.now(),
+        data: Array.isArray(list) ? list : [],
+      })
+    );
+  } catch {
+    // ignore
+  }
+};
+
+const getNodeChildren = (node) => {
+  if (Array.isArray(node?.children)) return node.children;
+  if (Array.isArray(node?.subCategories)) return node.subCategories;
+  return [];
+};
+
+const findNodeBySlug = (nodes = [], slug = "") => {
+  const target = String(slug || "").trim();
+  if (!target) return null;
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (String(node?.slug || "").trim() === target) return node;
+    const found = findNodeBySlug(getNodeChildren(node), target);
+    if (found) return found;
+  }
+  return null;
+};
+
+const collectDescendantSlugs = (node) => {
+  const out = [];
+  const walk = (n) => {
+    if (!n) return;
+    const slug = String(n?.slug || "").trim();
+    if (slug) out.push(slug);
+    const children = getNodeChildren(n);
+    for (const child of children) walk(child);
+  };
+  walk(node);
+  return [...new Set(out)];
+};
 
 const getToken = () => {
   try {
@@ -25,6 +84,9 @@ const getToken = () => {
 const MerchantPickProducts = () => {
   const screens = useBreakpoint();
   const isMd = !!screens.md;
+  const isMobile = !screens.md;
+  const isSm = !!screens.sm;
+  const isXl = !!screens.xl;
 
   const [balance, setBalance] = useState(0);
   const [balLoading, setBalLoading] = useState(false);
@@ -35,6 +97,7 @@ const MerchantPickProducts = () => {
   const [catSlug, setCatSlug] = useState(null);
   const [subSlug, setSubSlug] = useState(null);
   const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
 
   const [products, setProducts] = useState([]);
   const [prodLoading, setProdLoading] = useState(false);
@@ -50,6 +113,7 @@ const MerchantPickProducts = () => {
   const [viewOpen, setViewOpen] = useState(false);
   const [viewProduct, setViewProduct] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
+  const productsReqRef = useRef(0);
 
   const loadBalance = async () => {
     setBalLoading(true);
@@ -72,22 +136,30 @@ const MerchantPickProducts = () => {
   };
 
   const loadCategories = async () => {
+    const cached = readCategoryCache();
     setCatLoading(true);
     try {
+      if (cached?.length) {
+        setCategories(cached);
+        setCatLoading(false);
+      }
       const res = await fetch(API_CATEGORIES);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.message || "Category load failed");
-      setCategories(Array.isArray(json) ? json : []);
+      const next = Array.isArray(json) ? json : [];
+      setCategories(next);
+      writeCategoryCache(next);
     } catch (e) {
       console.error(e);
       message.error(e.message || "Category load failed");
-      setCategories([]);
+      if (!cached?.length) setCategories([]);
     } finally {
       setCatLoading(false);
     }
   };
 
   const loadProducts = async () => {
+    const requestId = ++productsReqRef.current;
     setProdLoading(true);
     try {
       const token = getToken();
@@ -96,26 +168,45 @@ const MerchantPickProducts = () => {
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("limit", String(LIMIT));
-      if (catSlug) params.set("category", catSlug);
-      if (subSlug) params.set("subCategory", subSlug);
-      if (search.trim()) params.set("search", search.trim());
+      if (catSlug) {
+        params.set("category", catSlug);
+        const selectedCategory = (categories || []).find((c) => String(c?.slug || "").trim() === String(catSlug).trim());
+        const categoryDescendants = collectDescendantSlugs(selectedCategory);
+        if (categoryDescendants.length) {
+          params.set("categoryScopes", categoryDescendants.join(","));
+        }
+      }
+      if (subSlug) {
+        params.set("subCategory", subSlug);
+        const selectedCategory = (categories || []).find((c) => String(c?.slug || "").trim() === String(catSlug).trim());
+        const selectedSubNode = findNodeBySlug(getNodeChildren(selectedCategory), subSlug);
+        const subDescendants = collectDescendantSlugs(selectedSubNode);
+        if (subDescendants.length) {
+          params.set("subCategoryScopes", subDescendants.join(","));
+        }
+      }
+      if (appliedSearch.trim()) params.set("search", appliedSearch.trim());
 
       const res = await fetch(`${API_ADMIN_PRODUCTS}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.message || "Product load failed");
+      if (requestId !== productsReqRef.current) return;
 
       const list = Array.isArray(json?.data) ? json.data : [];
       setProducts(list);
       setTotal(Number(json?.meta?.total || 0));
     } catch (e) {
+      if (requestId !== productsReqRef.current) return;
       console.error(e);
       message.error(e.message || "Product load failed");
       setProducts([]);
       setTotal(0);
     } finally {
-      setProdLoading(false);
+      if (requestId === productsReqRef.current) {
+        setProdLoading(false);
+      }
     }
   };
 
@@ -136,16 +227,31 @@ const MerchantPickProducts = () => {
   useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, catSlug, subSlug]);
+  }, [page, catSlug, subSlug, appliedSearch, categories]);
 
   const currentCat = useMemo(
     () => (categories || []).find((c) => c?.slug === catSlug) || null,
     [categories, catSlug]
   );
 
-  const subCategories = useMemo(() => {
-    const arr = currentCat?.subCategories || [];
-    return Array.isArray(arr) ? arr.filter((s) => s?.isActive !== false) : [];
+  const selectedCategorySubTreeOptions = useMemo(() => {
+    const mapSubTree = (nodes = [], parentPath = "") =>
+      (Array.isArray(nodes) ? nodes : [])
+        .filter((n) => n?.isActive !== false)
+        .map((n) => {
+          const slug = String(n?.slug || "").trim();
+          const path = parentPath ? `${parentPath}/${slug || n?.id || "node"}` : (slug || String(n?.id || "node"));
+          return {
+            title: n?.name || "Subcategory",
+            value: slug,
+            key: `sub:${path}`,
+            children: mapSubTree(getNodeChildren(n), path),
+          };
+        })
+        .filter((n) => Boolean(n.value));
+
+    if (!currentCat?.slug) return [];
+    return mapSubTree(getNodeChildren(currentCat));
   }, [currentCat]);
 
   const canAfford = (product, qty) => {
@@ -215,7 +321,7 @@ const MerchantPickProducts = () => {
 
   const onSearch = () => {
     setPage(1);
-    loadProducts();
+    setAppliedSearch(search);
   };
 
   const openView = async (product) => {
@@ -241,55 +347,112 @@ const MerchantPickProducts = () => {
   };
 
   return (
-    <div style={{ padding: isMd ? 12 : 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: isMd ? 8 : 4 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 6,
+          alignItems: isMd ? "center" : "stretch",
+          flexDirection: isMd ? "row" : "column",
+        }}
+      >
         <div>
-          <div style={{ fontSize: isMd ? 18 : 16, fontWeight: 800 }}>Pick Products (Admin Stock)</div>
-          <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>
-            Balance:{" "}
-            {balLoading ? (
-              <Spin size="small" />
-            ) : (
-              <Tag color="green" style={{ marginRight: 0 }}>
-                ৳{Number(balance || 0).toLocaleString()}
-              </Tag>
-            )}
+          <div style={{ fontSize: isMd ? 17 : 15, fontWeight: 800, lineHeight: 1.2 }}>Pick Products (Admin Stock)</div>
+          <div
+            style={{
+              fontSize: 11,
+              color: "#666",
+              marginTop: 2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 6,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              Balance:{" "}
+              {balLoading ? (
+                <Spin size="small" />
+              ) : (
+                <Tag color="green" style={{ marginRight: 0 }}>
+                  {"\u09F3"}{Number(balance || 0).toLocaleString()}
+                </Tag>
+              )}
+            </div>
+            <div style={{ whiteSpace: "nowrap" }}>{prodLoading ? "Loading..." : `${total} items`}</div>
           </div>
         </div>
-
-        <div style={{ fontSize: 12, color: "#666" }}>{prodLoading ? "Loading..." : `${total} items`}</div>
       </div>
 
       {/* Filters */}
-      <div style={{ marginTop: 10, display: "grid", gap: 8, gridTemplateColumns: isMd ? "1fr 1fr 1.2fr auto" : "1fr" }}>
+      <div
+        style={{
+          marginTop: 6,
+          display: "grid",
+          gap: 4,
+          gridTemplateColumns: isMd ? "1fr 1fr 1.2fr auto" : "1fr 1fr",
+          alignItems: "center",
+          padding: isMd ? 8 : 6,
+          border: "1px solid #f0f0f0",
+          borderRadius: 10,
+          background: "#fff",
+        }}
+      >
         <Select
-          size="small"
+          size="middle"
           loading={catLoading}
           placeholder="Category"
           value={catSlug}
           onChange={(v) => setCatSlug(v || null)}
           allowClear
+          style={{ minWidth: 0 }}
           options={(categories || [])
             .filter((c) => c?.isActive !== false)
             .map((c) => ({ label: c.name, value: c.slug }))}
         />
-        <Select
-          size="small"
+        <TreeSelect
+          size="middle"
           placeholder="Subcategory"
-          value={subSlug}
+          value={subSlug || undefined}
           onChange={(v) => setSubSlug(v || null)}
+          treeData={selectedCategorySubTreeOptions}
+          treeDefaultExpandAll
           allowClear
-          disabled={!catSlug || subCategories.length === 0}
-          options={subCategories.map((s) => ({ label: s.name, value: s.slug }))}
+          showSearch
+          disabled={!catSlug || selectedCategorySubTreeOptions.length === 0}
+          style={{ minWidth: 0, width: "100%" }}
         />
-        <Input size="small" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={onSearch} />
-        <Button size="small" onClick={onSearch}>
-          Search
-        </Button>
+        {isMobile ? (
+          <Input.Search
+            size="middle"
+            placeholder="Search..."
+            allowClear
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onSearch={onSearch}
+            style={{ gridColumn: "1 / -1" }}
+          />
+        ) : (
+          <>
+            <Input
+              size="middle"
+              placeholder="Search..."
+              allowClear
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onPressEnter={onSearch}
+            />
+            <Button size="middle" onClick={onSearch}>
+              Search
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Grid */}
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 8 }}>
         {prodLoading ? (
           <div style={{ padding: 18, display: "grid", placeItems: "center" }}>
             <Spin />
@@ -301,20 +464,40 @@ const MerchantPickProducts = () => {
             style={{
               display: "grid",
               gap: 8,
-              gridTemplateColumns: isMd ? "repeat(4, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))",
+              gridTemplateColumns: isXl
+                ? "repeat(5, minmax(0, 1fr))"
+                : isMd
+                  ? "repeat(4, minmax(0, 1fr))"
+                  : isSm
+                    ? "repeat(3, minmax(0, 1fr))"
+                    : "repeat(2, minmax(0, 1fr))",
             }}
           >
             {products.map((p) => {
               const pid = p.id;
               const selectedQty = Number(qtyMap[pid] || 1);
+              const inStoreQty = Number(p?.merchantStoreQty || 0);
+              const isInStore = inStoreQty > 0;
 
               return (
                 <Card
                   key={pid}
                   size="small"
-                  styles={{ body: { padding: 10 } }}
-                  style={{ borderRadius: 12 }}
+                  styles={{ body: { padding: 8 } }}
+                  style={{
+                    borderRadius: 12,
+                    border: isInStore ? "1px solid #22c55e" : "1px solid #f0f0f0",
+                    boxShadow: isInStore ? "0 0 0 2px rgba(34, 197, 94, 0.15)" : "none",
+                  }}
                 >
+                  {isInStore && (
+                    <div style={{ marginBottom: 6 }}>
+                      <Tag color="green" style={{ marginRight: 0, fontSize: 11, fontWeight: 700 }}>
+                        IN YOUR STORE: {inStoreQty}
+                      </Tag>
+                    </div>
+                  )}
+
                   <div 
                     style={{ width: "100%", aspectRatio: "1/1", background: "#f5f5f5", borderRadius: 10, overflow: "hidden", cursor: "pointer" }}
                     onClick={() => openView(p)}
@@ -329,7 +512,18 @@ const MerchantPickProducts = () => {
 
                   <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "start", gap: 4 }}>
                     <div 
-                      style={{ fontWeight: 800, fontSize: 13, lineHeight: "16px", flex: 1, cursor: "pointer" }}
+                      style={{
+                        fontWeight: 800,
+                        fontSize: 13,
+                        lineHeight: "16px",
+                        flex: 1,
+                        cursor: "pointer",
+                        display: "-webkit-box",
+                        WebkitLineClamp: isMobile ? 1 : 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
                       onClick={() => openView(p)}
                     >
                       {p.name}
@@ -348,6 +542,12 @@ const MerchantPickProducts = () => {
                     <span style={{ fontWeight: 800 }}>৳{Number(p.price || 0).toLocaleString()}</span>
                     <span>Stock: {p.stock ?? 0}</span>
                   </div>
+
+                  {isInStore && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: "#15803d", fontWeight: 600 }}>
+                      You already have {inStoreQty} in your store
+                    </div>
+                  )}
 
                   <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
                     <InputNumber

@@ -1,5 +1,10 @@
 const AppSetting = require("../models/AppSetting");
 
+const normalizeStoryDuration = (value) => {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n >= 24 ? n : 24;
+};
+
 // GET /api/settings
 exports.getSettings = async (req, res) => {
   try {
@@ -12,6 +17,7 @@ exports.getSettings = async (req, res) => {
         data[s.key] = s.value;
       }
     });
+    data.storyDurationHours = normalizeStoryDuration(data.storyDurationHours);
     res.json({ success: true, data });
   } catch (err) {
     console.error(err);
@@ -23,7 +29,8 @@ exports.getSettings = async (req, res) => {
 exports.updateSettings = async (req, res) => {
   try {
     const updates = req.body; // { deliveryCharge: 100, ... }
-    for (const [key, val] of Object.entries(updates)) {
+    for (const [key, rawVal] of Object.entries(updates)) {
+      const val = key === "storyDurationHours" ? normalizeStoryDuration(rawVal) : rawVal;
       await AppSetting.upsert({ key, value: JSON.stringify(val) });
     }
     res.json({ success: true, message: "Settings updated" });

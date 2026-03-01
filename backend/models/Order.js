@@ -67,6 +67,14 @@ const OrderItem = sequelize.define('OrderItem', {
     type: DataTypes.STRING,
     allowNull: true,
   },
+  trackingNumber: {
+    type: DataTypes.STRING(120),
+    allowNull: true,
+  },
+  trackingNote: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
 
   status: {
     type: DataTypes.ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled'),

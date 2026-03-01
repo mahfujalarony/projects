@@ -1,26 +1,57 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
 import { useDispatch } from "react-redux";
 import { addToCart } from "../../redux/cartSlice";
 import ProductCard from "./ProductCart";
 import { message, Skeleton } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { API_BASE_URL } from "../../config/env";
 
 const API_BASE = API_BASE_URL;
-const ITEMS_PER_PAGE = 24;
+const ROOT_WRAP_CLASS = "container mx-auto px-2 py-6 pb-16 bg-gray-50 min-h-[70vh]";
+const getItemsPerPage = () => (window.innerWidth < 768 ? 40 : 60);
+
+const normalizeText = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const suggestionScore = (keyword = "", query = "") => {
+  const k = normalizeText(keyword);
+  const q = normalizeText(query);
+  if (!k || !q) return 0;
+  if (k === q) return 100;
+  if (k.includes(q)) return 80;
+
+  const qTokens = q.split(" ").filter(Boolean);
+  const kTokens = k.split(" ").filter(Boolean);
+  let score = 0;
+
+  for (const qt of qTokens) {
+    if (!qt) continue;
+    if (k.includes(qt)) score += 12;
+    for (const kt of kTokens) {
+      if (kt.startsWith(qt) || qt.startsWith(kt)) score += 6;
+    }
+  }
+
+  return score;
+};
 
 const fetchSearchProducts = async ({ pageParam = 1, queryKey }) => {
-  const [, routeQuery, sort] = queryKey;
+  const [, routeQuery, sort, itemsPerPage] = queryKey;
 
   const res = await axios.get(`${API_BASE}/api/products/search`, {
     params: {
       query: routeQuery,
       sort,
       page: pageParam,
-      limit: ITEMS_PER_PAGE,
+      limit: Number(itemsPerPage) || 60,
     },
   });
 
@@ -35,10 +66,46 @@ const fetchSearchProducts = async ({ pageParam = 1, queryKey }) => {
 
 const Search = () => {
   const { query: routeQuery = "" } = useParams();
+  const navigate = useNavigate();
   const normalizedQuery = (routeQuery || "").trim();
   const dispatch = useDispatch();
   const { ref, inView } = useInView();
   const [sort, setSort] = useState("smart");
+  const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage());
+  const [adminSuggestions, setAdminSuggestions] = useState([]);
+
+  useEffect(() => {
+    const onResize = () => setItemsPerPage(getItemsPerPage());
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/settings`);
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok || !json?.success || ignore) return;
+
+        const raw = json?.data?.searchSuggestions;
+        const next = Array.isArray(raw)
+          ? raw
+          : String(raw || "")
+              .split(/\r?\n|,/)
+              .map((x) => String(x || "").trim())
+              .filter(Boolean);
+
+        if (!ignore) setAdminSuggestions([...new Set(next)].slice(0, 200));
+      } catch {
+        if (!ignore) setAdminSuggestions([]);
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const {
     data,
@@ -50,7 +117,7 @@ const Search = () => {
     error,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ["products-search-infinite", normalizedQuery, sort],
+    queryKey: ["products-search-infinite", normalizedQuery, sort, itemsPerPage],
     queryFn: fetchSearchProducts,
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
@@ -99,13 +166,34 @@ const Search = () => {
   }, [data]);
 
   const totalItems = data?.pages?.[0]?.total || 0;
+  const relatedSuggestions = useMemo(() => {
+    if (!normalizedQuery || !adminSuggestions.length) return [];
+    return adminSuggestions
+      .map((item) => ({ item, score: suggestionScore(item, normalizedQuery) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map((x) => x.item);
+  }, [adminSuggestions, normalizedQuery]);
 
   if (!normalizedQuery) {
     return (
-      <div className="container mx-auto px-2 py-6 pb-20 min-h-screen bg-gray-50">
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center mx-1">
-          <p className="text-gray-900 font-semibold text-lg">Type something to search</p>
-          <p className="text-gray-500 text-sm mt-1">Try product name, category, or brand keyword.</p>
+      <div className={ROOT_WRAP_CLASS}>
+        <div className="w-full min-h-[62vh] md:min-h-[68vh] mt-2 mb-2 bg-gradient-to-br from-white via-sky-50 to-cyan-50 px-4 py-10 md:px-8 md:py-14 text-center flex items-center justify-center">
+          <div className="max-w-xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 md:h-16 md:w-16 items-center justify-center rounded-2xl bg-white text-sky-600 shadow-sm">
+              <SearchOutlined style={{ fontSize: 26 }} />
+            </div>
+            <p className="text-gray-900 font-semibold text-xl md:text-2xl">Type something to search</p>
+            <p className="text-gray-600 text-sm md:text-base mt-2 leading-relaxed">
+              Try product name, category, or brand keyword.
+            </p>
+            <div className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 text-xs">
+              <span className="rounded-full bg-white px-3 py-1 text-gray-700 border border-sky-100">mobile</span>
+              <span className="rounded-full bg-white px-3 py-1 text-gray-700 border border-sky-100">laptop</span>
+              <span className="rounded-full bg-white px-3 py-1 text-gray-700 border border-sky-100">groceries</span>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -113,7 +201,7 @@ const Search = () => {
 
   if (status === "pending") {
     return (
-      <div className="container mx-auto px-2 py-6 pb-20 min-h-screen bg-gray-50">
+      <div className={ROOT_WRAP_CLASS}>
         <div className="mb-4 px-1">
           <Skeleton.Input active size="small" className="!w-56" />
         </div>
@@ -133,7 +221,7 @@ const Search = () => {
 
   if (status === "error") {
     return (
-      <div className="container mx-auto px-2 py-6 pb-20 min-h-screen bg-gray-50">
+      <div className={ROOT_WRAP_CLASS}>
         <div className="bg-white border border-red-200 rounded-xl p-4 mx-1">
           <p className="font-semibold text-red-600">Something went wrong</p>
           <p className="text-sm text-gray-600 mt-1">{error?.message || "Failed to load products. Try again."}</p>
@@ -149,27 +237,17 @@ const Search = () => {
   }
 
   return (
-    <div className="container mx-auto px-2 py-6 pb-20 min-h-screen bg-gray-50">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4 px-1">
-        <div>
-          <h2 className="text-xs font-bold text-gray-800">Search Results</h2>
-          <div className="text-xs text-gray-600 mt-1">
-            <span className="font-normal text-gray-500">({totalItems} items)</span>
-            <span className="ml-2">
-              for <span className="font-semibold text-gray-800">"{normalizedQuery}"</span>
-            </span>
-          </div>
-        </div>
-
+    <div className={ROOT_WRAP_CLASS}>
+      <div className="mb-4 flex justify-end px-1">
         <div className="flex items-center gap-2">
-          <label htmlFor="search-sort" className="text-sm text-gray-600">
+          <label htmlFor="search-sort" className="text-xs font-medium text-gray-600 sm:text-sm">
             Sort by
           </label>
           <select
             id="search-sort"
             value={sort}
             onChange={(e) => setSort(e.target.value)}
-            className="h-9 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="h-9 min-w-[158px] rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="smart">Best Match</option>
             <option value="newest">Newest</option>
@@ -212,16 +290,55 @@ const Search = () => {
           </div>
         </>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center mx-1">
-          <p className="text-gray-900 font-semibold text-lg">No products found</p>
-          <p className="text-gray-500 text-sm mt-1">No match found for "{normalizedQuery}".</p>
-          <div className="mt-4 text-sm text-gray-600">
-            <p className="font-medium text-gray-800">Try:</p>
-            <ul className="mt-2 space-y-1">
-              <li>- Check spelling</li>
-              <li>- Use shorter keywords</li>
-              <li>- Search by category or product type</li>
-            </ul>
+        <div className="w-full min-h-[62vh] md:min-h-[68vh] mt-2 mb-2 rounded-none border-0 bg-gradient-to-br from-white via-sky-50 to-cyan-50 px-4 py-10 md:px-8 md:py-14 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 md:h-16 md:w-16 items-center justify-center rounded-2xl bg-white text-orange-500 shadow-sm">
+            <SearchOutlined style={{ fontSize: 28 }} />
+          </div>
+          <p className="text-gray-900 font-semibold text-lg md:text-xl">No products found</p>
+          <p className="text-gray-600 text-sm mt-2 leading-relaxed">
+            We could not find any match for{" "}
+            <span className="font-semibold text-gray-800">"{normalizedQuery}"</span>
+          </p>
+
+          {relatedSuggestions.length > 0 ? (
+            <p className="mt-5 text-xs font-medium text-sky-700">Suggested searches</p>
+          ) : null}
+          <div className="mt-5 inline-flex flex-wrap items-center justify-center gap-2 text-xs">
+            {relatedSuggestions.length > 0 ? (
+              relatedSuggestions.map((item) => (
+                <button
+                  key={`suggestion-${item}`}
+                  type="button"
+                  onClick={() => navigate(`/search/${encodeURIComponent(item)}`)}
+                  className="rounded-full bg-white px-3 py-1 text-gray-700 border border-sky-100 hover:bg-sky-50 transition"
+                >
+                  {item}
+                </button>
+              ))
+            ) : (
+              <>
+                <span className="rounded-full bg-white px-3 py-1 text-gray-600 border border-sky-100">Check spelling</span>
+                <span className="rounded-full bg-white px-3 py-1 text-gray-600 border border-sky-100">Use shorter keywords</span>
+                <span className="rounded-full bg-white px-3 py-1 text-gray-600 border border-sky-100">Try category name</span>
+              </>
+            )}
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 transition"
+            >
+              Go to Home
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/search")}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+            >
+              Clear Search
+            </button>
           </div>
         </div>
       )}
