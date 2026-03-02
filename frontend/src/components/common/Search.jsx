@@ -44,7 +44,7 @@ const suggestionScore = (keyword = "", query = "") => {
 };
 
 const fetchSearchProducts = async ({ pageParam = 1, queryKey }) => {
-  const [, routeQuery, sort, itemsPerPage] = queryKey;
+  const [, routeQuery, sort, itemsPerPage, snapshotAt] = queryKey;
 
   const res = await axios.get(`${API_BASE}/api/products/search`, {
     params: {
@@ -52,6 +52,7 @@ const fetchSearchProducts = async ({ pageParam = 1, queryKey }) => {
       sort,
       page: pageParam,
       limit: Number(itemsPerPage) || 60,
+      ...(snapshotAt ? { snapshotAt } : {}),
     },
   });
 
@@ -73,6 +74,18 @@ const Search = () => {
   const [sort, setSort] = useState("smart");
   const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage());
   const [adminSuggestions, setAdminSuggestions] = useState([]);
+  // holds the last successfully loaded products so the grid never flashes empty
+  const stableProductsRef = React.useRef([]);
+  const stableTotalRef = React.useRef(0);
+
+  // frozen snapshot timestamp: reset when query or sort changes so pagination stays stable
+  const snapshotAtRef = React.useRef(Date.now());
+  const prevQueryKeyRef = React.useRef(`${normalizedQuery}__${sort}`);
+  const currentQueryKey = `${normalizedQuery}__${sort}`;
+  if (prevQueryKeyRef.current !== currentQueryKey) {
+    prevQueryKeyRef.current = currentQueryKey;
+    snapshotAtRef.current = Date.now();
+  }
 
   useEffect(() => {
     const onResize = () => setItemsPerPage(getItemsPerPage());
@@ -117,7 +130,7 @@ const Search = () => {
     error,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ["products-search-infinite", normalizedQuery, sort, itemsPerPage],
+    queryKey: ["products-search-infinite", normalizedQuery, sort, itemsPerPage, snapshotAtRef.current],
     queryFn: fetchSearchProducts,
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
@@ -165,7 +178,20 @@ const Search = () => {
     return Array.from(map.values());
   }, [data]);
 
-  const totalItems = data?.pages?.[0]?.total || 0;
+  // update stable ref whenever real (non-placeholder) results are available
+  if (!isFetching || isFetchingNextPage) {
+    if (products.length > 0) {
+      stableProductsRef.current = products;
+      stableTotalRef.current = data?.pages?.[0]?.total || 0;
+    }
+  }
+
+  // displayProducts: show current results when ready, fall back to previous
+  // so the grid NEVER goes blank while a new query is loading
+  const displayProducts = products.length > 0 ? products : stableProductsRef.current;
+  const totalItems = products.length > 0
+    ? (data?.pages?.[0]?.total || 0)
+    : stableTotalRef.current;
   const relatedSuggestions = useMemo(() => {
     if (!normalizedQuery || !adminSuggestions.length) return [];
     return adminSuggestions
@@ -199,18 +225,25 @@ const Search = () => {
     );
   }
 
-  if (status === "pending") {
+  // Show skeleton ONLY on the very first load with no previous results at all
+  if (status === "pending" && !data && displayProducts.length === 0) {
     return (
       <div className={ROOT_WRAP_CLASS}>
         <div className="mb-4 px-1">
-          <Skeleton.Input active size="small" className="!w-56" />
+          <div className="h-1 w-full rounded-full bg-gray-100 overflow-hidden mb-4">
+            <div className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-orange-400 animate-[shimmerBar_1.2s_ease_infinite]" style={{width:'60%'}} />
+          </div>
+          <style>{`@keyframes shimmerBar{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}`}</style>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="bg-white rounded-lg border border-gray-100 p-2">
-              <Skeleton.Image active className="!w-full !h-28 md:!h-32" />
-              <div className="mt-2">
-                <Skeleton active paragraph={{ rows: 2 }} title={false} />
+            <div key={i} className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+              <div className="relative w-full h-28 md:h-32 bg-gray-100 overflow-hidden">
+                <div className="absolute inset-0" style={{background:'linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent)',animation:'shimmerBar 1.4s linear infinite'}} />
+              </div>
+              <div className="p-2 space-y-2">
+                <div className="relative h-2.5 w-3/4 rounded-full bg-gray-100 overflow-hidden"><div className="absolute inset-0" style={{background:'linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent)',animation:'shimmerBar 1.4s linear infinite .1s'}} /></div>
+                <div className="relative h-2.5 w-1/2 rounded-full bg-gray-100 overflow-hidden"><div className="absolute inset-0" style={{background:'linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent)',animation:'shimmerBar 1.4s linear infinite .2s'}} /></div>
               </div>
             </div>
           ))}
@@ -258,22 +291,27 @@ const Search = () => {
         </div>
       </div>
 
+      {/* thin shimmer progress bar — shows for both initial and re-query loads */}
       {isFetching && !isFetchingNextPage && (
         <div className="px-1 mb-3">
-          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-            <div className="h-full w-1/3 bg-blue-500 animate-pulse" />
+          <div className="h-1 w-full rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-orange-400 via-pink-400 to-orange-400"
+              style={{ width: '60%', animation: 'shimmerBar 1.2s ease infinite' }}
+            />
           </div>
+          <style>{`@keyframes shimmerBar{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}`}</style>
         </div>
       )}
 
-      {products.length > 0 ? (
+      {displayProducts.length > 0 ? (
         <>
-          <div
+        <div
             className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3 mb-6 transition-opacity duration-300 ${
-              isFetching && !isFetchingNextPage ? "opacity-70" : "opacity-100"
+              isFetching && !isFetchingNextPage ? "opacity-60" : "opacity-100"
             }`}
           >
-            {products.map((product) => (
+            {displayProducts.map((product) => (
               <ProductCard key={product.id} product={product} onAddToCart={handleAddToCartClick} />
             ))}
           </div>
@@ -290,10 +328,11 @@ const Search = () => {
           </div>
         </>
       ) : (
-        <div className="w-full min-h-[62vh] md:min-h-[68vh] mt-2 mb-2 rounded-none border-0 bg-gradient-to-br from-white via-sky-50 to-cyan-50 px-4 py-10 md:px-8 md:py-14 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 md:h-16 md:w-16 items-center justify-center rounded-2xl bg-white text-orange-500 shadow-sm">
-            <SearchOutlined style={{ fontSize: 28 }} />
-          </div>
+        displayProducts.length === 0 && !isFetching ? (
+          <div className="w-full min-h-[62vh] md:min-h-[68vh] mt-2 mb-2 rounded-none border-0 bg-gradient-to-br from-white via-sky-50 to-cyan-50 px-4 py-10 md:px-8 md:py-14 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 md:h-16 md:w-16 items-center justify-center rounded-2xl bg-white text-orange-500 shadow-sm">
+              <SearchOutlined style={{ fontSize: 28 }} />
+            </div>
           <p className="text-gray-900 font-semibold text-lg md:text-xl">No products found</p>
           <p className="text-gray-600 text-sm mt-2 leading-relaxed">
             We could not find any match for{" "}
@@ -323,7 +362,6 @@ const Search = () => {
               </>
             )}
           </div>
-
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
@@ -341,6 +379,7 @@ const Search = () => {
             </button>
           </div>
         </div>
+        ) : null
       )}
     </div>
   );

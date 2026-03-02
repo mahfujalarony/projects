@@ -73,7 +73,6 @@ exports.register = async (req, res) => {
     // ✅ same format
     return sendAuthSuccess(res, user, "User registered successfully", 201);
   } catch (err) {
-    console.error(err);
     return sendError(res, 500, "Server error");
   }
 };
@@ -104,10 +103,8 @@ exports.login = async (req, res) => {
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return sendError(res, 401, "Invalid email/phone or password");
 
-    // ✅ same format
     return sendAuthSuccess(res, user, "Login successful", 200);
   } catch (error) {
-    console.error(error);
     return sendError(res, 500, "Server error");
   }
 };
@@ -126,7 +123,6 @@ exports.getMyProfile = async (req, res) => {
 
     return sendAuthSuccess(res, user, "Profile fetched successfully", 200);
   } catch (err) {
-    console.error(err);
     return sendError(res, 500, "Server error");
   }
 };
@@ -173,7 +169,6 @@ exports.googleLogin = async (req, res) => {
 
     return sendAuthSuccess(res, user, "Google login successful", 200);
   } catch (error) {
-    console.error("Google login error:", error);
     return sendError(res, 401, "Invalid Google credential");
   }
 };
@@ -206,7 +201,6 @@ exports.updateMyProfileImage = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
     return sendError(res, 500, "Server error");
   }
 };
@@ -260,7 +254,6 @@ exports.getPublicUserProfileById = async (req, res) => {
       recentOrders: orders,
     });
   } catch (err) {
-    console.error(err);
     return sendError(res, 500, "Server error");
   }
 };
@@ -284,7 +277,6 @@ exports.getPublicUsersBatch = async (req, res) => {
 
     return res.status(200).json({ success: true, users });
   } catch (err) {
-    console.error(err);
     return sendError(res, 500, "Server error");
   }
 };
@@ -305,9 +297,7 @@ exports.getMyBalance = async (req, res) => {
 exports.addAddress = async (req, res) => {
     try {
         const userId = req.user.id;
-        console.log('Add Address Request for User ID:', userId);
         const { label, name, phone, line1, city, zip } = req.body;
-        console.log('Address Data Received:', req.body);
 
         if(!phone || phone.trim() === '') {
             return res.status(400).json({ success: false, message: 'Phone number is required' });
@@ -333,7 +323,6 @@ exports.addAddress = async (req, res) => {
             address: newAddress,
         });
     } catch (error) {
-        console.error('ADD ADDRESS ERROR:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
@@ -343,7 +332,6 @@ exports.addAddress = async (req, res) => {
 exports.getCurrentUserAddresses = async (req, res) => {
     try {
         const userId = req.user.id;
-        console.log('Get Addresses Request for User ID:', userId);
         const addresses = await Address.findAll({
             where: { userId },
         });
@@ -352,7 +340,6 @@ exports.getCurrentUserAddresses = async (req, res) => {
             addresses,
         });
     } catch (error) {
-        console.error('GET ADDRESSES ERROR:', error);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

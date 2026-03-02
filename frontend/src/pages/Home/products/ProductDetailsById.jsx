@@ -12,7 +12,7 @@ import {
   InputNumber,
   message,
 } from "antd";
-import { MessageOutlined } from "@ant-design/icons";
+import { MessageOutlined, ShopOutlined, StarFilled, CheckCircleFilled } from "@ant-design/icons";
 import ProductReviews from "../../../components/common/ProductReviews.jsx"; 
 import { useDispatch, useSelector } from "react-redux";
 import { addToCart, updateQty } from "./../../../redux/cartSlice.js";
@@ -23,7 +23,6 @@ import "./ProductDetailsById.css";
 
 const { Title, Text } = Typography;
 const API_BASE = `${API_BASE_URL}`;
-const fallbackImg = "https://via.placeholder.com/320";
 
 const ProductDetailsById = () => {
   const { id } = useParams();
@@ -74,7 +73,7 @@ const ProductDetailsById = () => {
           setError(res.data?.message || "Product not found");
         }
       } catch (err) {
-        console.error("Product fetch error:", err);
+
         setError(err.response?.data?.message || "Failed to load product");
       } finally {
         setLoading(false);
@@ -100,7 +99,7 @@ const ProductDetailsById = () => {
         }
       } catch (err) {
         if (!ignore) {
-          console.error("Related products fetch error:", err);
+
           setRelatedProducts([]);
         }
       } finally {
@@ -114,7 +113,8 @@ const ProductDetailsById = () => {
     };
   }, [id]);
 
-  const cleanImage = (url) => normalizeImageUrl(url) || fallbackImg;
+  const cleanImage = (url) => normalizeImageUrl(url) || null;
+  
 
   const images = Array.isArray(product?.images) ? product.images : [];
   const mainImg = activeImg || images[0] || null;
@@ -205,7 +205,7 @@ const ProductDetailsById = () => {
         message.error("Failed to start chat");
       }
     } catch (err) {
-      console.error("Failed to open conversation:", err);
+
       message.error("Failed to start chat");
     }
   };
@@ -254,23 +254,54 @@ const ProductDetailsById = () => {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-3 py-3 sm:px-4 sm:py-4">
-      <Card bodyStyle={{ padding: 16 }}>
+      <Card styles={{ body: { padding: 16 } }}>
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           {/* Images */}
           <div className="w-full lg:w-auto">
-            <Image
-              src={cleanImage(mainImg)}
-              alt={product.name}
-              width="100%"
-              style={{
-                width: "100%",
-                maxWidth: 420,
-                aspectRatio: "1 / 1",
-                objectFit: "cover",
-                borderRadius: 12,
-              }}
-              fallback={fallbackImg}
-            />
+            <div className="relative">
+              {product.stock <= 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 10,
+                    borderRadius: 12,
+                    background: "rgba(0,0,0,0.45)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <span
+                    style={{
+                      background: "#ef4444",
+                      color: "#fff",
+                      fontWeight: 800,
+                      fontSize: 20,
+                      padding: "8px 28px",
+                      borderRadius: 8,
+                      letterSpacing: 1,
+                      boxShadow: "0 2px 12px rgba(0,0,0,0.3)",
+                    }}
+                  >
+                    OUT OF STOCK
+                  </span>
+                </div>
+              )}
+              <Image
+                src={cleanImage(mainImg)}
+                alt={product.name}
+                width="100%"
+                style={{
+                  width: "100%",
+                  maxWidth: 420,
+                  aspectRatio: "1 / 1",
+                  objectFit: "cover",
+                  borderRadius: 12,
+                }}
+                fallback={null}
+              />
+            </div>
 
             <div
               style={{
@@ -301,7 +332,7 @@ const ProductDetailsById = () => {
                       cursor: "pointer",
                     }}
                     onClick={() => setActiveImg(src)}
-                    fallback="https://via.placeholder.com/64"
+                    fallback={null}
                   />
                 );
               })}
@@ -318,7 +349,7 @@ const ProductDetailsById = () => {
               {product.category && <Tag>{product.category}</Tag>}
               {product.subCategory && <Tag color="geekblue">{product.subCategory}</Tag>}
               {product.stock > 0 ? (
-                <Tag color="green">In stock</Tag>
+                <Tag color="green">In stock: {product.stock}</Tag>
               ) : (
                 <Tag color="red">Out of stock</Tag>
               )}
@@ -345,111 +376,171 @@ const ProductDetailsById = () => {
             </div>
 
             {/* Quantity + Cart */}
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "16px",
-                alignItems: "center",
-                justifyContent: "flex-start",
-              }}
-            >
+            {product.stock <= 0 ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "14px 20px",
+                  border: "1.5px solid #fca5a5",
+                  borderRadius: 12,
+                  background: "#fef2f2",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <span style={{ fontSize: 22 }}>😔</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: "#dc2626", fontSize: 15 }}>
+                    This product is currently out of stock.
+                  </div>
+                  <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 2 }}>
+                    Please check back later or contact support for more information.
+                  </div>
+                </div>
+              </div>
+            ) : (
               <div
                 style={{
                   display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
                   flexWrap: "wrap",
-                  minWidth: "200px",
-                  flex: "1",
+                  gap: "16px",
+                  alignItems: "center",
+                  justifyContent: "flex-start",
                 }}
               >
-                <Text strong style={{ marginRight: 8 }}>
-                  Quantity:
-                </Text>
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <Button size="small" onClick={handleDecrease} disabled={qty <= 1}>
-                    -
-                  </Button>
-                  <InputNumber
-                    min={1}
-                    max={product.stock}
-                    value={qty}
-                    onChange={handleQtyChange}
-                    style={{ width: 70 }}
-                  />
-                  <Button
-                    size="small"
-                    onClick={handleIncrease}
-                    disabled={qty >= product.stock}
-                  >
-                    +
-                  </Button>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                    minWidth: "200px",
+                    flex: "1",
+                  }}
+                >
+                  <Text strong style={{ marginRight: 8 }}>
+                    Quantity:
+                  </Text>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <Button size="small" onClick={handleDecrease} disabled={qty <= 1}>
+                      -
+                    </Button>
+                    <InputNumber
+                      min={1}
+                      max={product.stock}
+                      value={qty}
+                      onChange={handleQtyChange}
+                      style={{ width: 70 }}
+                    />
+                    <Button
+                      size="small"
+                      onClick={handleIncrease}
+                      disabled={qty >= product.stock}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+
+                <Button
+                  type="primary"
+                  size="large"
+                  disabled={product.stock <= 0}
+                  onClick={handleAdd}
+                  style={{ flex: "1 1 220px", minWidth: 160, maxWidth: 320 }}
+                >
+                  {cartItem ? "Update Cart" : "Add to Cart"}
+                </Button>
+
+                <Button
+                  size="large"
+                  icon={<MessageOutlined />}
+                  onClick={handleMessage}
+                  style={{ flex: "1 1 140px" }}
+                >
+                  Support
+                </Button>
+
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {product.stock > 0 && (
+                    <Text type="secondary">Available: {product.stock}</Text>
+                  )}
+                  {cartItem && <Tag color="blue">In cart: {cartItem.qty}</Tag>}
                 </div>
               </div>
-
-              <Button
-                type="primary"
-                size="large"
-                disabled={product.stock <= 0}
-                onClick={handleAdd}
-                style={{ flex: "1 1 220px", minWidth: 160, maxWidth: 320 }}
-              >
-                {cartItem ? "Update Cart" : "Add to Cart"}
-              </Button>
-
-              <Button
-                size="large"
-                icon={<MessageOutlined />}
-                onClick={handleMessage}
-                style={{ flex: "1 1 140px" }}
-              >
-                Support
-              </Button>
-
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                {product.stock > 0 && (
-                  <Text type="secondary">Available: {product.stock}</Text>
-                )}
-                {cartItem && <Tag color="blue">In cart: {cartItem.qty}</Tag>}
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </Card>
 
       {/* Merchant */}
-      <Card style={{ marginTop: 24 }}>
-        <Title level={4}>Merchant</Title>
-        {product.merchant ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <Image
-              src={cleanImage(product.merchant.imageUrl || product.merchant.logo)}
-              alt={product.merchant.name}
-              width={64}
-              height={64}
-              style={{ objectFit: "cover", borderRadius: "50%" }}
-              fallback="https://via.placeholder.com/64"
-            />
-            <div>
-              <Text strong>{product.merchant.name}</Text>
-              <br />
-              <Space>
-                <Button type="link" onClick={goToMerchant} style={{ padding: 0 }}>
-                  View Profile
-                </Button>
-              </Space>
-            </div>
+      <div className="mt-6">
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-base font-bold text-slate-800 m-0">Sold By</h4>
+            {product.merchant && (
+              <Button type="link" size="small" onClick={goToMerchant} className="p-0 font-medium">
+                Visit Store
+              </Button>
+            )}
           </div>
-        ) : (
-          <Space direction="vertical">
-            <Text type="secondary">Merchant information not available.</Text>
-            <Button type="link" onClick={goToMerchant} style={{ padding: 0 }}>
-              Try merchant profile
-            </Button>
-          </Space>
-        )}
-      </Card>
+
+          {product.merchant ? (
+            <div className="flex items-start gap-4">
+              <div className="relative shrink-0 cursor-pointer" onClick={goToMerchant}>
+                {product.merchant.logo || product.merchant.imageUrl ? (
+                  <Image
+                    src={cleanImage(product.merchant.logo || product.merchant.imageUrl)}
+                    alt={product.merchant.name}
+                    width={64}
+                    height={64}
+                    className="rounded-full border border-slate-100 object-cover"
+                    preview={false}
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-50 text-slate-400 border border-slate-100">
+                    <ShopOutlined style={{ fontSize: 24 }} />
+                  </div>
+                )}
+                <div className="absolute -bottom-0.5 -right-0.5 rounded-full bg-blue-500 p-1 text-white shadow-sm border-2 border-white flex items-center justify-center">
+                  <CheckCircleFilled style={{ fontSize: 10 }} />
+                </div>
+              </div>
+
+              <div className="flex-1 min-w-0 pt-1">
+                <h3 
+                  className="text-base font-bold text-slate-900 truncate cursor-pointer hover:text-blue-600 transition-colors m-0 leading-tight"
+                  onClick={goToMerchant}
+                >
+                  {product.merchant.name}
+                </h3>
+                
+                <div className="mt-1.5 flex items-center gap-3 text-xs">
+                  {Number(product.merchant.reviews || 0) > 0 ? (
+                    <>
+                      <div className="flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-amber-700 border border-amber-100 font-bold">
+                        <span>{Number(product.merchant.rating || 0).toFixed(1)}</span>
+                        <StarFilled style={{ fontSize: 10 }} />
+                      </div>
+                      <span className="text-slate-500">
+                        {product.merchant.reviews} Reviews
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-slate-400 italic">No reviews yet</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <ShopOutlined className="text-2xl text-slate-300 mb-2" />
+              <Text type="secondary" className="text-xs">Merchant info unavailable</Text>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Related Products */}
       {(relatedLoading || relatedProducts.length > 0) && (

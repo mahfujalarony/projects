@@ -459,7 +459,7 @@ export default function Orders() {
                         {updatingId === row.id ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update"}
                       </button>
                     </div>
-                    {draft === "processing" || draft === "shipped" ? (
+                    {draft === "processing" && !row.trackingNumber ? (
                       <div className="mt-2 grid grid-cols-1 gap-1.5">
                         <input
                           value={draftTrackingNumberById[row.id] || ""}
@@ -554,7 +554,7 @@ export default function Orders() {
                               {updatingId === row.id ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update"}
                             </button>
                           </div>
-                          {draft === "processing" || draft === "shipped" ? (
+                          {draft === "processing" && !row.trackingNumber ? (
                             <div className="mt-1.5 grid grid-cols-1 gap-1.5">
                               <input
                                 value={draftTrackingNumberById[row.id] || ""}

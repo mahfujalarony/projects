@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { Drawer, Badge, Button, Empty, message as antdMessage, Spin, Tooltip } from "antd";
+import { Drawer, Badge, Button, message as antdMessage, Spin, Tooltip } from "antd";
 import { useNavigate } from "react-router-dom";
 import {
   BellOutlined,
@@ -123,9 +123,6 @@ const NotificationSidebar = ({ autoRefreshMs = 30000 }) => {
         const list = (res?.data || []).map(normalize);
         setNotifications(list);
       } catch (err) {
-        // token missing / not logged in -> just keep empty
-        // (তুমি চাইলে এখানে redirect করতে পারো)
-        console.error(err);
         if (!silent) antdMessage.error(err.message || "Failed to load notifications");
       } finally {
         if (!silent) setLoading(false);
@@ -233,15 +230,21 @@ const NotificationSidebar = ({ autoRefreshMs = 30000 }) => {
     }
   };
 
-  // optional auto refresh (REST polling)
+  // initial load on mount — badge count দেখানোর জন্য
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    loadNotifications({ silent: true });
+  }, [loadNotifications]);
+
+  // optional auto refresh (REST polling) — drawer বন্ধ থাকলেও badge update হবে
   useEffect(() => {
     if (!autoRefreshMs || autoRefreshMs < 3000) return; // min 3s
     const t = setInterval(() => {
-      // drawer open + tab visible থাকলে silent refresh
-      if (open && document.visibilityState === "visible") loadNotifications({ silent: true });
+      if (document.visibilityState === "visible") loadNotifications({ silent: true });
     }, autoRefreshMs);
     return () => clearInterval(t);
-  }, [autoRefreshMs, open, loadNotifications]);
+  }, [autoRefreshMs, loadNotifications]);
 
   return (
     <>
@@ -307,7 +310,7 @@ const NotificationSidebar = ({ autoRefreshMs = 30000 }) => {
         placement="right"
         onClose={onClose}
         open={open}
-        size="small"
+        width={380}
         className="notification-drawer"
       >
         {loading ? (
@@ -315,11 +318,24 @@ const NotificationSidebar = ({ autoRefreshMs = 30000 }) => {
             <Spin />
           </div>
         ) : notifications.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="No notifications"
-            className="mt-20"
-          />
+          <div className="flex flex-col items-center justify-center h-[70vh] text-center px-4">
+            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 border border-gray-100">
+              <BellOutlined style={{ fontSize: 28, color: "#cbd5e1" }} />
+            </div>
+            <h3 className="text-base font-semibold text-gray-700">All caught up!</h3>
+            <p className="text-xs text-gray-500 mt-1.5 leading-relaxed max-w-[200px]">
+              You have no new notifications at the moment.
+            </p>
+            <Button 
+              type="text" 
+              size="small" 
+              onClick={refresh} 
+              icon={<ReloadOutlined />} 
+              className="mt-4 text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+            >
+              Check again
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2">
             {notifications.map((notif) => (

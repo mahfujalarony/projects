@@ -4,7 +4,9 @@ const MerchentStore = require('../models/MerchentStore');
 const ProductDailyStat = require('../models/ProductDailyStat');
 const Category = require('../models/Category');
 const SubCategory = require('../models/SubCategory');
-const { Op, Sequelize } = require('sequelize');
+const MerchantProfile = require('../models/MerchantProfile');
+const Review = require('../models/Review');
+const { Op, Sequelize, fn, col } = require('sequelize');
 const RANK_CACHE_TTL_MS = 30 * 1000;
 const rankCache = new Map();
 
@@ -196,6 +198,8 @@ const rowScore = (row = {}, sort = "smart", trendMap = new Map()) => {
       return disc * 100 + trend * 0.1 + fresh;
     case "popular":
       return trend + sold * 5 + rating * 8 + reviews * 0.2;
+    case "trending":
+      return trend * 3 + sold * 8 + rating * 5 + reviews * 0.1;
     case "smart":
     default:
       return (
@@ -236,7 +240,7 @@ const collapseAndRankByBaseProduct = (rows = [], sort = "smart", trendMap = new 
 
   const ranked = Array.from(bestByBase.values()).sort((a, b) => {
     // In ranking-driven lists, products with real interaction history come first.
-    if (sort === "smart" || sort === "popular") {
+    if (sort === "smart" || sort === "popular" || sort === "trending") {
       const aHasTrend = hasTrendSignal(a, trendMap) ? 1 : 0;
       const bHasTrend = hasTrendSignal(b, trendMap) ? 1 : 0;
       if (aHasTrend !== bHasTrend) return bHasTrend - aHasTrend;
@@ -257,7 +261,7 @@ const collapseAndRankByBaseProduct = (rows = [], sort = "smart", trendMap = new 
 const rankRowsWithoutCollapse = (rows = [], sort = "smart", trendMap = new Map()) => {
   const source = (rows || []).map((row) => (typeof row?.toJSON === "function" ? row.toJSON() : row));
   return source.sort((a, b) => {
-    if (sort === "smart" || sort === "popular") {
+    if (sort === "smart" || sort === "popular" || sort === "trending") {
       const aHasTrend = hasTrendSignal(a, trendMap) ? 1 : 0;
       const bHasTrend = hasTrendSignal(b, trendMap) ? 1 : 0;
       if (aHasTrend !== bHasTrend) return bHasTrend - aHasTrend;
@@ -501,7 +505,6 @@ exports.getPublicProducts = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getPublicProducts error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -513,13 +516,20 @@ exports.getPublicProductById = async (req, res) => {
     const product = await MerchentStore.findOne({
       where: {
         id,
-        stock: { [Op.gt]: 0 }, // user side এ শুধু available product
+        // stock filter সরানো হয়েছে — out of stock product ও return হবে
       },
       include: [
         {
           model: User,
-          as: "merchant", // association name
-          attributes: ["id", "name", "imageUrl"],
+          as: "merchant",
+          attributes: ["id", "name", "imageUrl", "createdAt"],
+          include: [
+            {
+              model: MerchantProfile,
+              as: "merchantProfile",
+              attributes: ["averageRating", "totalReviews"],
+            },
+          ],
         },
       ],
     });
@@ -531,6 +541,42 @@ exports.getPublicProductById = async (req, res) => {
       });
     }
 
+    // compute merchant's live aggregate rating from all active reviews across their products
+    let merchantRating = product.merchant?.merchantProfile?.averageRating || 0;
+    let merchantReviews = product.merchant?.merchantProfile?.totalReviews || 0;
+
+    if (product.merchant) {
+      try {
+        const row = await Review.findOne({
+          attributes: [
+            [fn("COUNT", col("Review.id")), "cnt"],
+            [fn("AVG", col("Review.rating")), "avg"],
+          ],
+          include: [{
+            model: MerchentStore,
+            as: "product",
+            where: { merchantId: product.merchant.id },
+            attributes: [],
+          }],
+          where: { isActive: true },
+          raw: true,
+        });
+        const total = Number(row?.cnt || 0);
+        const avg = Number(row?.avg || 0);
+        if (total > 0) {
+          merchantRating = Number(avg.toFixed(2));
+          merchantReviews = total;
+          // keep stored profile in sync
+          await MerchantProfile.update(
+            { averageRating: merchantRating, totalReviews: merchantReviews },
+            { where: { userId: product.merchant.id } }
+          );
+        }
+      } catch (e) {
+        // non-fatal: fall back to stored profile value
+      }
+    }
+
     // frontend friendly shape
     return res.json({
       success: true,
@@ -540,13 +586,15 @@ exports.getPublicProductById = async (req, res) => {
           ? {
               id: product.merchant.id,
               name: product.merchant.name,
-              logo: product.merchant.imageUrl, // frontend এ logo হিসেবে যাবে
+              logo: product.merchant.imageUrl,
+              rating: merchantRating,
+              reviews: merchantReviews,
+              joinedAt: product.merchant.createdAt,
             }
           : null,
       },
     });
   } catch (err) {
-    console.error("getPublicProductById error:", err);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -630,7 +678,6 @@ exports.getRelatedPublicProducts = async (req, res) => {
       relatedBy: subCategory ? "subCategory" : category ? "category" : "merchant",
     });
   } catch (err) {
-    console.error("getRelatedPublicProducts error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -646,6 +693,7 @@ exports.search = async (req, res) => {
     const limitNum = Math.min(Math.max(parseInt(req.query.limit, 10) || 24, 1), 100);
     const offset = (pageNum - 1) * limitNum;
     const sort = String(req.query.sort || "smart").toLowerCase();
+    const snapshotTs = Number(req.query.snapshotAt) > 0 ? Number(req.query.snapshotAt) : Date.now();
 
     const baseTerms = normalizedQuery.split(" ").filter(Boolean).slice(0, 8);
     const expandedTerms = expandSearchTerms(query);
@@ -686,20 +734,22 @@ exports.search = async (req, res) => {
       [Op.or]: expandedTerms.flatMap((term) => buildTermOrConditions(term)),
     };
 
-    const runSearch = async (where) =>
+    const runSearch = async (where, strategyName) =>
       fetchRankedPublicRows({
         where,
         sort,
         offset,
         limit: limitNum,
+        snapshotAt: snapshotTs,
+        cacheKey: JSON.stringify({ sort, query: normalizedQuery, strategy: strategyName, snapshotTs }),
       });
 
     let strategy = "strict";
-    let { rows, total } = await runSearch(strictWhere);
+    let { rows, total } = await runSearch(strictWhere, "strict");
 
     if (total === 0 && expandedTerms.length > 0) {
       strategy = "relaxed";
-      const fallback = await runSearch(relaxedWhere);
+      const fallback = await runSearch(relaxedWhere, "relaxed");
       rows = fallback.rows;
       total = fallback.total;
     }
@@ -720,10 +770,11 @@ exports.search = async (req, res) => {
         hasPrev: pageNum > 1,
         strategy,
         terms: expandedTerms,
+        snapshotAt: snapshotTs,
       },
     });
   } catch (error) {
-    console.error('SEARCH PRODUCTS ERROR:', error);
+
     return res.status(500).json({
       success: false,
       message: 'Server error while searching products',
@@ -740,8 +791,6 @@ exports.search = async (req, res) => {
 exports.createProduct = async (req, res) => {
     try {
         const body = req.body || {};
-
-        console.log("Received product data:", body);
         const requestedCategoryId = Number(body.categoryId);
         const requestedSubCategoryId = Number(body.subCategoryId);
 
@@ -830,14 +879,10 @@ exports.createProduct = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error); 
+
         res.status(400).json({ 
             message: "Error creating product", 
             error: error.message 
         });
     }
 };
-
-
-
-

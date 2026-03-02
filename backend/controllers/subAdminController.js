@@ -27,7 +27,7 @@ exports.getSubAdminList = async (req, res) => {
     });
     res.json({ rows });
   } catch (e) {
-    console.error(e);
+
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -43,7 +43,7 @@ exports.getSubAdminPermissions = async (req, res) => {
     });
     res.json({ permissions: rows.map(r => r.permKey) });
   } catch (e) {
-    console.error(e);
+
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -67,7 +67,7 @@ exports.setSubAdminPermissions = async (req, res) => {
 
     return res.json({ success: true, userId: subAdminId, permissions: clean });
   } catch (e) {
-    console.error(e);
+
 
     if (e?.name === "SequelizeDatabaseError" || e?.name === "SequelizeValidationError") {
       return res.status(400).json({ message: "Invalid permission value" });

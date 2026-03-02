@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from "react";
-import { Skeleton } from "antd";
 import StoryViewer from "./StoryViewer";
 
 const clean = (u) => (u ? String(u).replace(/\\/g, "/") : "");
@@ -52,13 +51,15 @@ export default function Story({ stories = [], loading = false }) {
     <>
       <div className="px-4 md:px-6">
         {loading ? (
-          <div className="flex gap-3 md:gap-4 overflow-x-auto pb-2">
+          <div className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide pb-2">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="w-[42vw] max-w-[170px] sm:w-[180px] md:w-[200px] lg:w-[220px] flex-shrink-0">
-                <Skeleton.Image
-                  active
-                  className="!w-full !h-auto !aspect-[9/16] !rounded-2xl !overflow-hidden"
-                />
+              <div 
+                key={i} 
+                className="flex flex-col items-start w-[42vw] max-w-[170px] sm:w-[180px] md:w-[200px] lg:w-[220px] flex-shrink-0"
+                style={{ animation: `skeletonFadeIn 0.4s ease-out ${i * 70}ms both` }}
+              >
+                <div className="shimmer-block w-full aspect-[9/16] rounded-2xl border border-white/60 shadow-sm" />
+                <div className="shimmer-block mt-2 h-3 md:h-3.5 w-2/3 rounded-full" />
               </div>
             ))}
           </div>
@@ -81,7 +82,7 @@ export default function Story({ stories = [], loading = false }) {
                   />
                 </div>
 
-                <span className="mt-1 text-xs md:text-sm font-medium text-gray-700 w-full truncate">
+                <span className="mt-1 text-xs md:text-sm font-medium text-gray-700 w-full truncate text-left">
                   {s.merchantName}
                 </span>
               </button>

@@ -126,7 +126,7 @@ export default function MobileBankingId() {
         }))
       );
     } catch (e) {
-      console.error(e);
+
     } finally {
       setFetchingUsers(false);
     }
@@ -149,7 +149,7 @@ export default function MobileBankingId() {
       setProvider(res.data?.data?.provider || null);
       setWallets(safeArr(res.data?.data?.wallets));
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Load failed");
     } finally {
       setLoading(false);
@@ -185,7 +185,7 @@ export default function MobileBankingId() {
       message.success("Logo uploaded");
       onSuccess?.({ url });
     } catch (err) {
-      console.error(err);
+
       message.error(err?.message || "Upload failed");
       onError?.(err);
     } finally {
@@ -215,7 +215,7 @@ export default function MobileBankingId() {
       createWalletForm.setFieldsValue({ visibility: "public", ownerUserId: undefined });
       loadWallets();
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Create wallet failed");
     }
   };
@@ -234,7 +234,7 @@ export default function MobileBankingId() {
       }
     } catch (e) {
       setWallets(prevWallets);
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Delete failed");
     }
   };
@@ -255,7 +255,7 @@ export default function MobileBankingId() {
       });
       setNumbers(safeArr(res.data?.data?.numbers));
     } catch (e) {
-      console.error(e);
+
       if (!silent) {
         message.error(e?.response?.data?.message || "Numbers load failed");
       }
@@ -281,7 +281,7 @@ export default function MobileBankingId() {
       loadNumbers(activeWallet.id);
     } catch (e) {
       if (e?.errorFields) return;
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Add number failed");
     }
   };
@@ -306,7 +306,7 @@ export default function MobileBankingId() {
         message.success("Number deleted");
         return;
       }
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Delete number failed");
     } finally {
       setDeletingNumberIds((prev) => prev.filter((x) => x !== idKey));

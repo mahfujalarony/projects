@@ -11,11 +11,8 @@ const ProductGrid = ({
   const navigate = useNavigate();
 
  
-  const defaultAddToCart = (product, quantity) => {
-    console.log(`Added ${quantity} of ${product.name} to cart`);
-  };
 
-  const handleAddToCartClick = onAddToCart || defaultAddToCart;
+  const handleAddToCartClick = onAddToCart;
 
   return (
     <div className="px-3 md:px-6">

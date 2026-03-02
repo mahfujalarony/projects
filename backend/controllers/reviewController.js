@@ -166,7 +166,6 @@ exports.createReview = async (req, res) => {
       try {
         stats = await recomputeProductRating(pid, t);
       } catch (e) {
-        console.error("recomputeProductRating failed:", e?.message || e);
         stats = await getLiveReviewStats(pid, t);
       }
 
@@ -176,7 +175,7 @@ exports.createReview = async (req, res) => {
           await recomputeMerchantRating(product.merchantId, t);
         } catch (e) {
           // Keep review flow successful even if merchant stat table/schema is behind.
-          console.error("recomputeMerchantRating failed:", e?.message || e);
+
         }
       }
 
@@ -200,7 +199,7 @@ exports.createReview = async (req, res) => {
       productStats: created.stats,
     });
   } catch (err) {
-    console.error("createReview error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -245,7 +244,7 @@ exports.updateReview = async (req, res) => {
       try {
         stats = await recomputeProductRating(review.productId, t);
       } catch (e) {
-        console.error("recomputeProductRating failed:", e?.message || e);
+
         stats = await getLiveReviewStats(review.productId, t);
       }
 
@@ -253,7 +252,7 @@ exports.updateReview = async (req, res) => {
         try {
           await recomputeMerchantRating(product.merchantId, t);
         } catch (e) {
-          console.error("recomputeMerchantRating failed:", e?.message || e);
+
         }
       }
 
@@ -267,7 +266,7 @@ exports.updateReview = async (req, res) => {
       productStats: out.stats,
     });
   } catch (err) {
-    console.error("updateReview error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -304,7 +303,7 @@ exports.getProductReviews = async (req, res) => {
       reviews: rows,
     });
   } catch (err) {
-    console.error("getProductReviews error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -333,7 +332,7 @@ exports.getReviewEligibility = async (req, res) => {
       reviewId: existing?.id || null,
     });
   } catch (err) {
-    console.error("getReviewEligibility error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

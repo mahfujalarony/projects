@@ -74,7 +74,6 @@ exports.getMerchantRequests = async (req, res) => {
       totalPages: q || hasSuspendedFilter ? 1 : Math.ceil(count / limit),
     });
   } catch (err) {
-    console.error("getMerchantRequests error:", err);
     return res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -130,7 +129,6 @@ exports.approveMerchant = async (req, res) => {
     await t.commit();
     return res.json({ ok: true, message: "Merchant approved", data: merchant });
   } catch (err) {
-    console.error("approveMerchant error:", err);
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }
@@ -171,7 +169,6 @@ exports.rejectMerchant = async (req, res) => {
     await t.commit();
     return res.json({ ok: true, message: "Merchant request rejected & deleted" });
   } catch (err) {
-    console.error("rejectMerchant error:", err);
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }
@@ -226,7 +223,6 @@ exports.suspendMerchant = async (req, res) => {
     await t.commit();
     return res.json({ ok: true, message: "Merchant suspended successfully", data: merchant });
   } catch (err) {
-    console.error("suspendMerchant error:", err);
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }
@@ -280,7 +276,6 @@ exports.resumeMerchant = async (req, res) => {
     await t.commit();
     return res.json({ ok: true, message: "Merchant resumed successfully", data: merchant });
   } catch (err) {
-    console.error("resumeMerchant error:", err);
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }
@@ -375,7 +370,6 @@ exports.getAdminProducts = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -392,7 +386,6 @@ exports.getAdminStats = async (req, res) => {
       try {
         return await fnCall();
       } catch (error) {
-        console.error(`getAdminStats:${label} failed`, error?.message || error);
         return fallback;
       }
     };
@@ -421,7 +414,7 @@ exports.getAdminStats = async (req, res) => {
       () => Offer.count({ where: { isActive: true } }),
       0
     );
-    const usersBalanceRaw = await safe("balance_users_sum", () => User.sum("balance", { where: { role: "user" } }), 0);
+    const usersBalanceRaw = await safe("balance_users_sum", () => User.sum("balance"), 0);
     const merchantBalanceRaw = await safe(
       "balance_merchants_sum",
       () => User.sum("balance", { where: { role: "merchant" } }),
@@ -559,7 +552,6 @@ exports.getAdminStats = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getAdminStats error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -574,7 +566,6 @@ exports.getAdminProductById = async (req, res) => {
 
     return res.json({ success: true, data: product });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -615,7 +606,6 @@ exports.updateAdminProduct = async (req, res) => {
 
     return res.json({ success: true, message: "Product updated", data: product });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -643,7 +633,6 @@ exports.getProductFilters = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -662,7 +651,6 @@ exports.deleteAdminProduct = async (req, res) => {
 
     return res.json({ message: "Product deleted successfully" });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -708,7 +696,6 @@ exports.setSubAdminPermissions = async (req, res) => {
 
     return res.json({ success: true, userId: subAdminId, permissions: clean });
   } catch (e) {
-    console.error(e);
     return res.status(500).json({ message: "Server error" });
   }
 };

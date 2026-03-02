@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useNavigationType } from "react-router-dom";
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import { useNavigationType, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
 import { useDispatch } from "react-redux";
@@ -12,8 +12,8 @@ const API_BASE = `${API_BASE_URL}`;
 const getItemsPerPage = () => (window.innerWidth < 768 ? 40 : 60);
 
 const fetchProducts = async ({ pageParam = 1, queryKey }) => {
-  const [, sort, itemsPerPage] = queryKey;
-  const url = `${API_BASE}/api/products?page=${pageParam}&limit=${Number(itemsPerPage) || 60}&sort=${encodeURIComponent(sort)}&mode=all`;
+  const [, sort, itemsPerPage, snapshotAt] = queryKey;
+  const url = `${API_BASE}/api/products?page=${pageParam}&limit=${Number(itemsPerPage) || 60}&sort=${encodeURIComponent(sort)}&mode=all${snapshotAt ? `&snapshotAt=${snapshotAt}` : ""}`;
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -32,10 +32,38 @@ const fetchProducts = async ({ pageParam = 1, queryKey }) => {
 
 const AllProducts = () => {
   const navigationType = useNavigationType();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { ref, inView } = useInView();
   const dispatch = useDispatch();
-  const [sort, setSort] = useState("smart");
+  const [sort, setSort] = useState(() => searchParams.get("sort") || "smart");
+  // frozen at first page load so all subsequent pages use the same ranked snapshot
+  const snapshotAtRef = useRef(Date.now());
+  const [snapshotAt] = useState(() => snapshotAtRef.current);
+
+  // reset snapshot when sort changes so we get a fresh ranking
+  const prevSortRef = useRef(sort);
+  if (prevSortRef.current !== sort) {
+    prevSortRef.current = sort;
+    snapshotAtRef.current = Date.now();
+  }
+
+  // sync sort when URL changes (e.g. navigating from home page "View All" links)
+  useEffect(() => {
+    const urlSort = searchParams.get("sort") || "smart";
+    if (urlSort !== sort) setSort(urlSort);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage());
+
+  // keep URL in sync when sort changes — always store sort in URL
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (sort) next.set("sort", sort);
+      else next.delete("sort");
+      return next;
+    }, { replace: true });
+  }, [sort]);
 
   useEffect(() => {
     const onResize = () => setItemsPerPage(getItemsPerPage());
@@ -45,7 +73,7 @@ const AllProducts = () => {
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, status, error } =
     useInfiniteQuery({
-      queryKey: ["public-products-infinite", sort, "all", itemsPerPage],
+      queryKey: ["public-products-infinite", sort, "all", itemsPerPage, snapshotAtRef.current],
       queryFn: fetchProducts,
       initialPageParam: 1,
       getNextPageParam: (lastPage) => lastPage.nextPage,
@@ -114,6 +142,18 @@ const AllProducts = () => {
 
   const totalItems = data?.pages?.[0]?.total || 0;
 
+  // deduplicate across pages — if a product shifts rank between page requests
+  // the same id could appear twice; the Map keeps only the first occurrence
+  const allProducts = useMemo(() => {
+    const map = new Map();
+    for (const group of data?.pages || []) {
+      for (const product of group.data || []) {
+        if (product?.id && !map.has(product.id)) map.set(product.id, product);
+      }
+    }
+    return Array.from(map.values());
+  }, [data]);
+
   return (
     <div className="container mx-auto px-2 py-6 pb-20">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4 px-1">
@@ -129,6 +169,7 @@ const AllProducts = () => {
             className="h-9 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="smart">Best Match</option>
+            <option value="trending">Trending</option>
             <option value="popular">Most Popular</option>
             <option value="rating">Top Rated</option>
             <option value="discount">Best Discount</option>
@@ -152,16 +193,12 @@ const AllProducts = () => {
           isFetching && !isFetchingNextPage ? "opacity-70" : "opacity-100"
         }`}
       >
-        {data?.pages.map((group, i) => (
-          <React.Fragment key={i}>
-            {group.data.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                onAddToCart={handleAddToCartClick}
-              />
-            ))}
-          </React.Fragment>
+        {allProducts.map((product) => (
+          <ProductCard
+            key={product.id}
+            product={product}
+            onAddToCart={handleAddToCartClick}
+          />
         ))}
       </div>
 

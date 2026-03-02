@@ -154,7 +154,6 @@ exports.merchantRegister = async (req, res) => {
       data: merchant,
     });
   } catch (err) {
-    console.error("MERCHANT REGISTER ERROR:", err);
     return res.status(500).json({ message: err?.message || "Server error" });
   }
 };
@@ -329,7 +328,6 @@ exports.getAdminProductsForMerchant = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getAdminProductsForMerchant error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -345,7 +343,6 @@ exports.getAdminProductDetails = async (req, res) => {
 
     return res.json({ success: true, data: product });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -354,7 +351,6 @@ exports.getAdminProductDetails = async (req, res) => {
 exports.getMyBalance = async (req, res) => {
   try {
     const merchantId = req.userId || req.user?.id || getAuthUserId(req);
-    console.log("getMyBalance merchantId:", merchantId);
     if (!merchantId) return res.status(401).json({ message: "Unauthorized" });
 
     const me = await Authentication.findByPk(merchantId, { attributes: ["id", "balance"] });
@@ -362,7 +358,6 @@ exports.getMyBalance = async (req, res) => {
 
     return res.json({ data: { merchantId: me.id, balance: Number(me.balance || 0) } });
   } catch (err) {
-    console.error("getMyBalance error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -489,7 +484,6 @@ exports.pickFromAdminToMerchantStore = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("pickFromAdminToMerchantStore error:", err);
     await t.rollback();
     return res.status(500).json({ message: "Server error" });
   }
@@ -541,7 +535,6 @@ exports.getMyStore = async (req, res) => {
       meta: { total: count, page: pageNum, limit: limitNum, totalPages: Math.ceil(count / limitNum) },
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -573,7 +566,6 @@ exports.updateMyStoreProduct = async (req, res) => {
 
     return res.json({ success: true, message: "Product updated", data: product });
   } catch (err) {
-    console.error("updateMyStoreProduct error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -666,7 +658,6 @@ exports.getMerchantOrders = async (req, res) => {
       data,
     });
   } catch (err) {
-    console.error("getMerchantOrders error:", err);
     return res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -692,7 +683,6 @@ exports.getTopSellingProducts = async (req, res) => {
 
     return res.json({ success: true, data: topProducts });
   } catch (err) {
-    console.error("getTopSellingProducts error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -708,6 +698,7 @@ exports.getMerchantDashboardOverview = async (req, res) => {
     const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     const sevenDaysStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
     const sumAmountExpr = sequelize.literal("COALESCE(SUM(price * quantity), 0)");
+    const sumEarningsExpr = sequelize.literal("COALESCE(SUM(commissionAmount), 0)");
 
     const [
       merchantUser,
@@ -723,6 +714,7 @@ exports.getMerchantDashboardOverview = async (req, res) => {
       todayOrders,
       todayDeliveredOrders,
       todaySalesSum,
+      todayEarningsSum,
       totalEarningsSum,
       recentOrdersRaw,
       last7OrdersRaw,
@@ -758,7 +750,16 @@ exports.getMerchantDashboardOverview = async (req, res) => {
         raw: true,
       }),
       OrderItem.findOne({
-        attributes: [[sumAmountExpr, "amount"]],
+        attributes: [[sumEarningsExpr, "amount"]],
+        where: {
+          matchMerchantId: merchantId,
+          status: "delivered",
+          createdAt: { [Op.gte]: todayStart, [Op.lt]: tomorrowStart },
+        },
+        raw: true,
+      }),
+      OrderItem.findOne({
+        attributes: [[sumEarningsExpr, "amount"]],
         where: {
           matchMerchantId: merchantId,
           status: "delivered",
@@ -837,6 +838,7 @@ exports.getMerchantDashboardOverview = async (req, res) => {
           orders: Number(todayOrders || 0),
           deliveredOrders: Number(todayDeliveredOrders || 0),
           sales: Number(todaySalesSum?.amount || 0),
+          earnings: Number(todayEarningsSum?.amount || 0),
         },
         last7Days: {
           sales: Number(totalSales || 0),
@@ -850,7 +852,6 @@ exports.getMerchantDashboardOverview = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getMerchantDashboardOverview error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -954,10 +955,13 @@ exports.getMerchantStorefront = async (req, res) => {
       return res.status(404).json({ message: "Merchant not found" });
     }
 
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, search = "", sort = "newest", category = "" } = req.query;
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
     const offset = (pageNum - 1) * limitNum;
+
+    const searchTerm = String(search || "").trim();
+    const categoryTerm = String(category || "").trim();
 
     // 1. Get Merchant Info
     const merchantUser = await Authentication.findByPk(merchantUserId, {
@@ -1007,10 +1011,34 @@ exports.getMerchantStorefront = async (req, res) => {
     };
 
     // 2. Get Products
+    const productWhere = { merchantId: merchantUserId, stock: { [Op.gt]: 0 } };
+
+    if (searchTerm) {
+      productWhere[Op.or] = [
+        { name: { [Op.like]: `%${searchTerm}%` } },
+        { category: { [Op.like]: `%${searchTerm}%` } },
+        { subCategory: { [Op.like]: `%${searchTerm}%` } },
+      ];
+    }
+
+    if (categoryTerm) {
+      productWhere.category = { [Op.like]: `%${categoryTerm}%` };
+    }
+
+    const sortOrders = {
+      newest:     [["createdAt", "DESC"]],
+      oldest:     [["createdAt", "ASC"]],
+      price_low:  [["price", "ASC"]],
+      price_high: [["price", "DESC"]],
+      popular:    [["soldCount", "DESC"], ["createdAt", "DESC"]],
+      rating:     [["averageRating", "DESC"], ["totalReviews", "DESC"]],
+    };
+    const order = sortOrders[sort] || sortOrders.newest;
+
     const { rows, count } = await MerchentStore.findAndCountAll({
-      where: { merchantId: merchantUserId, stock: { [Op.gt]: 0 } },
+      where: productWhere,
       attributes: { exclude: ["description"] },
-      order: [["createdAt", "DESC"]],
+      order,
       limit: limitNum,
       offset,
     });
@@ -1027,7 +1055,6 @@ exports.getMerchantStorefront = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getMerchantStorefront error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

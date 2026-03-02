@@ -42,7 +42,6 @@ exports.getMyNotifications = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getMyNotifications error:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -53,7 +52,6 @@ exports.getMyNotifications = async (req, res) => {
 exports.createNotification = async (req, res) => {
   try {
     const { userId, type, title, message, meta } = req.body;
-    console.log("createNotification body:", req.body);
 
     if (!userId || !title || !message) {
       return res
@@ -73,7 +71,6 @@ exports.createNotification = async (req, res) => {
 
     res.status(201).json({ ok: true, data: notif });
   } catch (err) {
-    console.error("createNotification error:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -95,7 +92,6 @@ exports.markAsRead = async (req, res) => {
 
     res.json({ ok: true, data: notif });
   } catch (err) {
-    console.error("markAsRead error:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -112,7 +108,6 @@ exports.markAllAsRead = async (req, res) => {
 
     res.json({ ok: true, updated });
   } catch (err) {
-    console.error("markAllAsRead error:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -128,7 +123,6 @@ exports.deleteNotification = async (req, res) => {
 
     res.json({ ok: true, deleted: true });
   } catch (err) {
-    console.error("deleteNotification error:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -140,7 +134,6 @@ exports.clearAll = async (req, res) => {
     const deleted = await Notification.destroy({ where: { userId } });
     res.json({ ok: true, deletedCount: deleted });
   } catch (err) {
-    console.error("clearAll error:", err);
     res.status(500).json({ ok: false, message: "Server error" });
   }
 };

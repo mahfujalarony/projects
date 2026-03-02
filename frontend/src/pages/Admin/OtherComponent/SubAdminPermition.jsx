@@ -61,7 +61,7 @@ const SubAdminPermition = () => {
         setSubAdmins(res.data.users || []);
       }
     } catch (error) {
-      console.error(error);
+
       message.error("Failed to load sub-admins");
     } finally {
       setLoadingList(false);
@@ -83,7 +83,7 @@ const SubAdminPermition = () => {
         setPermissions(res.data.permissions);
       }
     } catch (error) {
-      console.error(error);
+
       // যদি রাউট না থাকে বা এরর হয়
       message.error("Failed to load permissions. Check backend route.");
     } finally {
@@ -109,7 +109,7 @@ const SubAdminPermition = () => {
         message.error(res.data?.message || "Failed to update");
       }
     } catch (error) {
-      console.error(error);
+
       message.error(error.response?.data?.message || "Update failed");
     } finally {
       setSaving(false);

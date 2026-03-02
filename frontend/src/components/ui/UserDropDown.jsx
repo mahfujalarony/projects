@@ -11,8 +11,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { setAuthState } from "../../redux/authSlice.js";
-import fallbackuserImage from "../../public/user.jpg";
 import { CHAT_BASE_URL } from "../../config/env.js";
+import { User } from "lucide-react";
 
 const UserDropDown = () => {
   const navigate = useNavigate();
@@ -75,12 +75,17 @@ const UserDropDown = () => {
     <div className="w-[min(92vw,22rem)] sm:w-80 rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden max-h-[min(78vh,34rem)] flex flex-col">
       <div className="px-4 py-4 border-b bg-gradient-to-r from-slate-50 to-blue-50">
         <div className="flex items-center gap-3">
-          <img
-            src={user?.imageUrl || fallbackuserImage}
-            alt={user?.name || "User"}
-            className="w-11 h-11 rounded-full object-cover border border-white shadow"
-          />
-          <div className="min-w-0">
+              {user?.imageUrl ? (
+                <img
+                  src={user.imageUrl}
+                  alt={user?.name || "User"}
+                  className="w-11 h-11 rounded-full object-cover border border-white shadow"
+                />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-gray-200 flex items-center justify-center border border-white shadow">
+                  <User className="w-6 h-6 text-gray-400" />
+                </div>
+              )}          <div className="min-w-0">
             <p className="font-semibold text-slate-900 truncate">{user?.name || "User"}</p>
             <p className="text-xs text-slate-500 truncate">{user?.email || "Signed in"}</p>
             <span className="inline-flex mt-1 mr-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 capitalize">

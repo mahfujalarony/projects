@@ -171,7 +171,7 @@ export default function MerchantProfile() {
             Current Balance: <Text strong>BDT {Number(balance || 0).toLocaleString()}</Text>
           </Text>
           <Text type="secondary">
-            Withdraw request করতে Support Chat এ যোগাযোগ করুন, অথবা admin settings এ set করা WhatsApp/Email ব্যবহার করুন।
+            To request a withdrawal, please contact Support Chat or use the WhatsApp/Email set in admin settings.
           </Text>
 
           <Space wrap>

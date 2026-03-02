@@ -42,6 +42,7 @@ const CheckoutPage = () => {
   const [loading, setLoading] = useState(false);
   const [balLoading, setBalLoading] = useState(false);
   const [balance, setBalance] = useState(0);
+  const [stockMap, setStockMap] = useState({}); // { [productId]: currentStock }
 
   const [form] = Form.useForm();
   const screens = useBreakpoint();
@@ -64,7 +65,7 @@ const CheckoutPage = () => {
           setDeliveryCharge(Number(data.data.deliveryCharge));
         }
       })
-      .catch((err) => console.error("Failed to load settings", err));
+      .catch((err) => message.error("Failed to load settings"));
   }, []);
 
   const totals = useMemo(
@@ -128,12 +129,35 @@ const CheckoutPage = () => {
           if (arr.length > 0) setSelectedAddress(arr[0].id);
         }
       } catch (error) {
-        console.error("Error fetching addresses:", error);
+        message.error("Failed to load addresses");
       }
     };
 
     fetchAddresses();
     fetchBalance();
+  }, []);
+
+  // cart items এর realtime stock fetch করা হচ্ছে
+  React.useEffect(() => {
+    if (cartItems.length === 0) return;
+    const token = getToken();
+    Promise.all(
+      cartItems.map((item) =>
+        fetch(`${API_BASE}/api/products/${item.id}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+          .then((r) => r.json())
+          .catch(() => null)
+      )
+    ).then((results) => {
+      const map = {};
+      results.forEach((d, i) => {
+        const stock = d?.product?.stock;
+        if (stock !== undefined) map[cartItems[i].id] = Number(stock);
+      });
+      setStockMap(map);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Add new address
@@ -166,7 +190,6 @@ const CheckoutPage = () => {
             message.error(data?.message || "Failed to add address");
           }
         } catch (error) {
-          console.error("Failed to post address:", error);
           message.error("Something went wrong!");
         }
       })
@@ -174,6 +197,11 @@ const CheckoutPage = () => {
   };
 
   const handleIncrease = (id, currentQty) => {
+    const maxStock = stockMap[id];
+    if (maxStock !== undefined && currentQty >= maxStock) {
+      message.warning(`Height stock: ${maxStock}`);
+      return;
+    }
     dispatch(updateQty({ id, qty: currentQty + 1 }));
   };
 
@@ -275,7 +303,6 @@ const CheckoutPage = () => {
 
       navigate("/orders");
     } catch (e) {
-      console.error("place order error:", e);
       message.error("Something went wrong!");
     } finally {
       setLoading(false);
@@ -307,6 +334,7 @@ const CheckoutPage = () => {
                     size="small"
                     icon={<PlusOutlined />}
                     onClick={() => handleIncrease(item.id, item.qty)}
+                    disabled={stockMap[item.id] !== undefined && item.qty >= stockMap[item.id]}
                   />
                 </Space>,
                 <Text key="line" strong>

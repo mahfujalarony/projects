@@ -102,7 +102,7 @@ exports.createSubCategory = async (req, res) => {
 
     return res.status(201).json(created);
   } catch (err) {
-    console.error("createSubCategory error:", err);
+
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -129,7 +129,7 @@ exports.getSubCategories = async (req, res) => {
 
     return res.json(rows);
   } catch (err) {
-    console.error("getSubCategories error:", err);
+
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -175,7 +175,7 @@ exports.updateSubCategory = async (req, res) => {
     await sub.save();
     return res.json(sub);
   } catch (err) {
-    console.error("updateSubCategory error:", err);
+
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -200,13 +200,13 @@ exports.deleteSubCategory = async (req, res) => {
       try {
         await deleteUploadFileIfSafe(row.imageUrl);
       } catch (e) {
-        console.error("deleteSubCategory image cleanup error:", e);
+
       }
     }
 
     return res.json({ message: "Subcategory deleted", deletedCount: idsToDelete.length });
   } catch (err) {
-    console.error("deleteSubCategory error:", err);
+
     return res.status(500).json({ message: "Server error" });
   }
 };

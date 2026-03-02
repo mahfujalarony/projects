@@ -80,6 +80,18 @@ const OrderItem = sequelize.define('OrderItem', {
     type: DataTypes.ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled'),
     defaultValue: 'pending',
   },
+
+  // Frozen at order-creation time so earnings stay correct even if admin changes the rate later
+  commissionPercent: {
+    type: DataTypes.DECIMAL(6, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
+  commissionAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
 }, {
   tableName: 'order_items',  
   timestamps: true,

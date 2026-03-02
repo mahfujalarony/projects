@@ -517,21 +517,12 @@ const AdminOffers = () => {
             </div>
           ) : null}
 
-          {/* Manual imageUrl fallback */}
-          <Form.Item
-            name="imageUrl"
-            label="Or Image URL/Path (fallback)"
-            extra='Example: "offers/o1.webp" বা "uploads/offers/abc.webp"'
-          >
-            <Input placeholder="offers/o1.webp" />
-          </Form.Item>
 
           <Form.Item name="type" label="Type" initialValue="carousel">
             <Select
               options={[
                 { label: "Carousel", value: "carousel" },
                 { label: "Banner", value: "banner" },
-                { label: "Popup", value: "popup" },
               ]}
             />
           </Form.Item>

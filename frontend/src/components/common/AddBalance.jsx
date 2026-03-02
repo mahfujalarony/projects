@@ -93,7 +93,6 @@ export default function AddBalance() {
       const res = await axios.get(`${API}/client/mobile-banking`, { headers: authHeaders });
       setProviders(safeArr(res.data?.data));
     } catch (e) {
-      console.error(e);
       message.error(e?.response?.data?.message || "Mobile banking load failed");
     } finally {
       setLoadingProviders(false);
@@ -108,7 +107,6 @@ export default function AddBalance() {
       });
       setWallets(safeArr(res.data?.data?.wallets));
     } catch (e) {
-      console.error(e);
       message.error(e?.response?.data?.message || "Wallets load failed");
       setWallets([]);
     } finally {
@@ -147,8 +145,6 @@ export default function AddBalance() {
         }
       );
     } catch (e) {
-      console.error(e);
-      // pending check fail হলেও UI ভাঙাবে না
       setPendingInfo({
         topupBlockedUntil: null,
         isTopupBlocked: false,
@@ -283,7 +279,6 @@ export default function AddBalance() {
       // ✅ submit এর পর pending refresh
       loadPending();
     } catch (e) {
-      console.error(e);
       if (Number(e?.response?.status) === 409) {
         message.error(
           e?.response?.data?.message ||
@@ -344,7 +339,6 @@ export default function AddBalance() {
       setSupportMessage("");
       navigate(`/chats/${conversationId}`);
     } catch (e) {
-      console.error(e);
       message.error(e?.message || "Failed to send support message");
     } finally {
       setSendingSupport(false);

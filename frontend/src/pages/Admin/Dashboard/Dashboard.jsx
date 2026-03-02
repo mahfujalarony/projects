@@ -1,18 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Card, Row, Col, Statistic } from "antd";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+import UplotReact from "uplot-react";
+import "uplot/dist/uPlot.min.css";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../../config/env";
@@ -29,6 +18,149 @@ import {
 
 const API_BASE = `${API_BASE_URL}/api`;
 
+// ─── Donut / Pie chart drawn on a plain <canvas> (no recharts, no uPlot) ──────
+const DonutChart = ({ data, colors }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const total = data.reduce((s, d) => s + d.value, 0);
+    if (total === 0) {
+      ctx.fillStyle = "#e2e8f0";
+      ctx.beginPath();
+      ctx.arc(W / 2, H / 2, 70, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+
+    let startAngle = -Math.PI / 2;
+    const cx = W / 2;
+    const cy = H / 2;
+    const outerR = 80;
+    const innerR = 55;
+    const gap = 0.03;
+
+    data.forEach((d, i) => {
+      if (d.value === 0) return;
+      const slice = (d.value / total) * (Math.PI * 2);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, outerR, startAngle + gap / 2, startAngle + slice - gap / 2);
+      ctx.closePath();
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.fill();
+
+      // cut inner hole
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.beginPath();
+      ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      startAngle += slice;
+    });
+  }, [data, colors]);
+
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <canvas ref={canvasRef} width={200} height={200} />
+      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+        {data.map((d, i) => (
+          <div key={d.name} className="flex items-center gap-1 text-xs text-slate-600">
+            <span
+              className="inline-block w-3 h-3 rounded-sm"
+              style={{ background: colors[i % colors.length] }}
+            />
+            {d.name} ({d.value})
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── Today's Order Status – uPlot line chart ──────────────────────────────────
+const TodayOrderChart = ({ data }) => {
+  const labels = data.map((d) => d.name);
+  const values = data.map((d) => d.orders);
+
+  // uPlot needs numeric x-axis – use index 0..N-1
+  const xs = labels.map((_, i) => i);
+
+  const opts = {
+    width: 0, // will be overridden by responsive wrapper
+    height: 280,
+    series: [
+      {
+        // x-series
+        value: (u, v) => labels[v] ?? v,
+      },
+      {
+        label: "Orders",
+        stroke: "#2563eb",
+        width: 2,
+        fill: "rgba(37,99,235,0.07)",
+        points: { show: true, size: 8, fill: "#2563eb" },
+      },
+    ],
+    axes: [
+      {
+        values: (u, vals) => vals.map((v) => labels[v] ?? v),
+        gap: 6,
+      },
+      {
+        gap: 6,
+      },
+    ],
+    scales: {
+      x: { range: [-0.5, labels.length - 0.5] },
+    },
+    grid: { stroke: "#e2e8f0", width: 1 },
+    cursor: { show: true },
+    legend: { show: true },
+  };
+
+  return (
+    <ResponsiveUplot opts={opts} data={[xs, values]} />
+  );
+};
+
+// Wrapper that measures container width and passes it to uPlot
+const ResponsiveUplot = ({ opts, data }) => {
+  const wrapRef = useRef(null);
+  const [width, setWidth] = useState(600);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w && w > 0) setWidth(Math.floor(w));
+    });
+    ro.observe(el);
+    setWidth(Math.floor(el.getBoundingClientRect().width) || 600);
+    return () => ro.disconnect();
+  }, []);
+
+  const finalOpts = useMemo(() => ({ ...opts, width }), [opts, width]);
+
+  return (
+    <div ref={wrapRef} className="w-full overflow-hidden">
+      {width > 0 && (
+        <UplotReact options={finalOpts} data={data} />
+      )}
+    </div>
+  );
+};
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 const Dashboard = () => {
   const reduxToken = useSelector((state) => state.auth?.token);
   const [loading, setLoading] = useState(true);
@@ -63,6 +195,8 @@ const Dashboard = () => {
     }
   }, [reduxToken]);
 
+  const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#EF4444"];
+
   const orderStatusData = useMemo(
     () => [
       { name: "Pending", value: Number(stats.ordersByStatus?.pending || 0) },
@@ -85,7 +219,6 @@ const Dashboard = () => {
     [stats.today]
   );
 
-  const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#EF4444"];
   const todayLabel = new Date().toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -144,7 +277,7 @@ const Dashboard = () => {
           },
         });
       } catch (error) {
-        console.error("Failed to load dashboard stats", error);
+
         setStats({
           users: 0,
           products: 0,
@@ -156,7 +289,13 @@ const Dashboard = () => {
           activeOffers: 0,
           balances: { users: 0, merchants: 0, admin: 0 },
           inventory: { lowStockProducts: 0, outOfStockProducts: 0 },
-          today: { orders: 0, sales: 0, newUsers: 0, approvedTopupAmount: 0, byStatus: { pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0 } },
+          today: {
+            orders: 0,
+            sales: 0,
+            newUsers: 0,
+            approvedTopupAmount: 0,
+            byStatus: { pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0 },
+          },
           ordersByStatus: { pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0 },
         });
       } finally {
@@ -173,6 +312,7 @@ const Dashboard = () => {
 
   return (
     <div className="p-3 md:p-6 bg-slate-50 min-h-screen -m-6">
+      {/* ── Header ── */}
       <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-5 md:p-7 mb-6 text-white shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -203,174 +343,81 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* ── Stats Cards ── */}
       <Row gutter={[16, 16]} className="mb-8">
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white">
-            <Statistic
-              title="Total Users"
-              value={stats.users}
-              prefix={<UsersIcon size={18} className="text-blue-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Total Users" value={stats.users} prefix={<UsersIcon size={18} className="text-blue-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white">
-            <Statistic
-              title="Total Products"
-              value={stats.products}
-              prefix={<PackageIcon size={18} className="text-green-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Total Products" value={stats.products} prefix={<PackageIcon size={18} className="text-green-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white">
-            <Statistic
-              title="Total Orders"
-              value={stats.orders}
-              prefix={<ClipboardList size={18} className="text-purple-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Total Orders" value={stats.orders} prefix={<ClipboardList size={18} className="text-purple-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-orange-100 bg-gradient-to-br from-orange-50 to-white">
-            <Statistic
-              title="Merchant Requests"
-              value={stats.pendingMerchantRequests}
-              prefix={<Store size={18} className="text-orange-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Merchant Requests" value={stats.pendingMerchantRequests} prefix={<Store size={18} className="text-orange-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white">
-            <Statistic
-              title="Today's Sales"
-              value={stats.today.sales}
-              precision={2}
-              prefix={<CircleDollarSign size={18} className="text-emerald-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Today's Sales" value={stats.today.sales} precision={2} prefix={<CircleDollarSign size={18} className="text-emerald-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white">
-            <Statistic
-              title="Users Total Balance"
-              value={stats.balances.users}
-              precision={2}
-              prefix={<WalletIcon size={18} className="text-violet-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Users Total Balance" value={stats.balances.users} precision={2} prefix={<WalletIcon size={18} className="text-violet-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white">
-            <Statistic
-              title="Low Stock Products"
-              value={stats.inventory.lowStockProducts}
-              prefix={<Boxes size={18} className="text-amber-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Low Stock Products" value={stats.inventory.lowStockProducts} prefix={<Boxes size={18} className="text-amber-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 to-white">
-            <Statistic
-              title="Pending Topups"
-              value={stats.pendingTopups}
-              prefix={<Zap size={18} className="text-red-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Pending Topups" value={stats.pendingTopups} prefix={<Zap size={18} className="text-red-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white">
-            <Statistic
-              title="Today's Orders"
-              value={stats.today.orders}
-              prefix={<ClipboardList size={18} className="text-sky-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Today's Orders" value={stats.today.orders} prefix={<ClipboardList size={18} className="text-sky-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white">
-            <Statistic
-              title="New Users Today"
-              value={stats.today.newUsers}
-              prefix={<UsersIcon size={18} className="text-indigo-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="New Users Today" value={stats.today.newUsers} prefix={<UsersIcon size={18} className="text-indigo-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-green-100 bg-gradient-to-br from-green-50 to-white">
-            <Statistic
-              title="Approved Merchants"
-              value={stats.approvedMerchants}
-              prefix={<Store size={18} className="text-green-600" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Approved Merchants" value={stats.approvedMerchants} prefix={<Store size={18} className="text-green-600" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-rose-100 bg-gradient-to-br from-rose-50 to-white">
-            <Statistic
-              title="Out Of Stock"
-              value={stats.inventory.outOfStockProducts}
-              prefix={<Boxes size={18} className="text-rose-500" />}
-              valueStyle={{ fontWeight: "bold" }}
-            />
+            <Statistic title="Out Of Stock" value={stats.inventory.outOfStockProducts} prefix={<Boxes size={18} className="text-rose-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
       </Row>
 
-      {/* Charts Section */}
+      {/* ── Charts ── */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
           <Card title="Today's Order Status" bordered={false} className="shadow-sm rounded-2xl border border-slate-100">
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={todayProgressData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="orders" stroke="#2563eb" activeDot={{ r: 8 }} name="Orders" />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <TodayOrderChart data={todayProgressData} />
           </Card>
         </Col>
         <Col xs={24} lg={8}>
           <Card title="Overall Order Breakdown" bordered={false} className="shadow-sm rounded-2xl border border-slate-100">
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={orderStatusData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    paddingAngle={5}
-                    dataKey="value"
-                    label
-                  >
-                    {orderStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+            <div className="flex justify-center py-2">
+              <DonutChart data={orderStatusData} colors={COLORS} />
             </div>
           </Card>
         </Col>

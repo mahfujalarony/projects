@@ -20,7 +20,6 @@ import {
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import axios from "axios";
-import fallbackImg from "./../../public/user.jpg";
 import { useSelector } from "react-redux";
 import { normalizeImageUrl } from "../../utils/imageUrl";
 import { API_BASE_URL } from "../../config/env";
@@ -32,7 +31,7 @@ const { TextArea } = Input;
 const API_BASE = API_BASE_URL;
 const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`; 
 
-const cleanImage = (url) => normalizeImageUrl(url) || fallbackImg;
+const cleanImage = (url) => normalizeImageUrl(url);
 
 const timeAgo = (dateStr) => {
   const d = new Date(dateStr);
@@ -112,7 +111,6 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
         }
       }
     } catch (e) {
-      console.error(e);
       message.error(e.response?.data?.message || "Failed to load reviews");
     } finally {
       setLoading(false);
@@ -130,7 +128,6 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
       });
       if (res.data?.success) setElig(res.data);
     } catch (e) {
-      console.error(e);
     }
   };
 
@@ -241,7 +238,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
         rating: Number(myRating),
         title: myTitle,
         comment: myComment,
-        images: imageUrls, // ✅ backend expects images array
+        images: imageUrls,
       };
 
       const res = await axios.post(`${API_BASE}/api/reviews`, payload, {
@@ -268,7 +265,6 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
         message.error(res.data?.message || "Failed");
       }
     } catch (e) {
-      console.error(e);
       message.error(e.response?.data?.message || e.message || "Failed");
     } finally {
       setSubmitting(false);
@@ -343,7 +339,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
           type="inner"
           title="Write a review"
           style={{ marginBottom: 16, borderRadius: 14 }}
-          bodyStyle={{ padding: 16 }}
+          styles={{ body: { padding : 16 }}}
         >
           <Space direction="vertical" style={{ width: "100%" }} size="middle">
             <Space align="center" wrap>
@@ -411,7 +407,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
         <Alert
           type="warning"
           showIcon
-          message="Not eligible"
+          title="Not eligible to review"
           description="You can review only after ordering and receiving (delivered) this product."
         />
       )}
@@ -420,7 +416,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
       {displayReviews.length === 0 && !loading ? (
         <Empty description="No reviews yet" />
       ) : (
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        <Space orientation="vertical" style={{ width: "100%" }} size="middle">
           {displayReviews.map((r) => (
             <Card key={r.id} type="inner" style={{ borderRadius: 14 }} bodyStyle={{ padding: 14 }}>
               <div

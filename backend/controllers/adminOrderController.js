@@ -97,7 +97,6 @@ exports.getAdminOrders = async (req, res) => {
       limit: limitNum,
     });
   } catch (err) {
-    console.error("getAdminOrders error:", err);
     return res.status(500).json({ message: "Failed to fetch orders" });
   }
 };
@@ -106,7 +105,6 @@ exports.getAdminOrders = async (req, res) => {
 exports.getAdminOrderDetails = async (req, res) => {
   try {
     const id = Number(req.params.id);
-    console.log("Fetching details for order id:", id);
 
     const order = await OrderItem.findByPk(id, {
       include: [
@@ -123,7 +121,6 @@ exports.getAdminOrderDetails = async (req, res) => {
       user: order.User || { id: order.userId },
     });
   } catch (e) {
-    console.error("getAdminOrderDetails error:", e);
     return res.status(500).json({ message: e.message || "Server error" });
   }
 };
@@ -184,10 +181,15 @@ exports.updateOrderStatus = async (req, res) => {
       const itemPriceTotal = Number(orderItem.price) * Number(orderItem.quantity);
       const itemDelivery = Number(orderItem.deliveryCharge || 0);
       const refundAmount = itemPriceTotal + itemDelivery;
-      const sellerCommissionPercent = await getSellerCommissionPercent(t);
-      const commissionForItem = Number(
-        ((itemPriceTotal * sellerCommissionPercent) / 100).toFixed(2)
-      );
+
+      // Use the frozen commission stored at order time (fallback to current rate for old orders)
+      let commissionForItem = Number(orderItem.commissionAmount || 0);
+      if (commissionForItem === 0 && itemPriceTotal > 0) {
+        const sellerCommissionPercent = await getSellerCommissionPercent(t);
+        commissionForItem = Number(
+          ((itemPriceTotal * sellerCommissionPercent) / 100).toFixed(2)
+        );
+      }
       const merchantDebitTotal = Number((itemPriceTotal + commissionForItem).toFixed(2));
 
       if (isPaid && refundAmount > 0) {
@@ -278,7 +280,6 @@ exports.updateOrderStatus = async (req, res) => {
     return res.json(orderItem);
   } catch (err) {
     await t.rollback();
-    console.error("updateOrderStatus error:", err);
     return res.status(500).json({ message: "Failed to update status" });
   }
 };

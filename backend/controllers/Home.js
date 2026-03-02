@@ -66,11 +66,6 @@ exports.getHomeSections = async (req, res) => {
   try {
     const days = Number(req.query.days || 7);
     const limit = Number(req.query.limit || 30);
-    const flashPage = Math.max(Number(req.query.flashPage || 1), 1);
-    const flashLimit = Math.min(
-      Math.max(Number(req.query.flashLimit || 10), 1),
-      100
-    );
 
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -163,56 +158,154 @@ exports.getHomeSections = async (req, res) => {
       .sort((x, y) => y.score - x.score)
       .slice(0, limit);
 
-    // 4) Flash sale = biggest discount (stock > 0)
-    const flash = await MerchentStore.findAll({
+    // 4) New Arrivals — 1 newest product per merchant, fair rotation
+    const newArrivalsRaw = await MerchentStore.findAll({
       where: { stock: { [Op.gt]: 0 } },
+      attributes: ["id", "name", "price", "oldPrice", "images", "stock",
+                   "category", "subCategory", "merchantId",
+                   "averageRating", "totalReviews", "createdAt"],
       order: [["createdAt", "DESC"]],
+      limit: 500,
     });
 
-    const flashWithMerchant = await attachMerchantSummary(flash);
+    const NEW_ARRIVALS_TARGET = 30;
 
-    const flashRanked = flashWithMerchant
-      .map((j) => {
-        const discountPct = calcDiscountPct(j.price, j.oldPrice);
-        return { ...j, discountPct, images: cleanImages(j.images) };
+    // how many unique merchants have products?
+    const allMerchantIds = new Set(newArrivalsRaw.map((p) => p.merchantId));
+    const uniqueMerchantCount = allMerchantIds.size || 1;
+    // each merchant contributes ceil(30 / merchantCount) products
+    // e.g. 1 merchant → 30, 3 → 10, 10 → 3, 30+ → 1
+    const maxPerMerchant = Math.max(1, Math.ceil(NEW_ARRIVALS_TARGET / uniqueMerchantCount));
+
+    const merchantProductCounts = {};
+    const newArrivalsCandidates = [];
+    for (const p of newArrivalsRaw) {
+      const mid = p.merchantId;
+      if ((merchantProductCounts[mid] || 0) >= maxPerMerchant) continue;
+      merchantProductCounts[mid] = (merchantProductCounts[mid] || 0) + 1;
+      newArrivalsCandidates.push({
+        ...p.toJSON(),
+        images: cleanImages(p.toJSON().images),
+      });
+      if (newArrivalsCandidates.length >= NEW_ARRIVALS_TARGET) break;
+    }
+
+    // slight random jitter so order rotates each request → take 30
+    const newArrivalsShuffled = newArrivalsCandidates
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        const jitter = (Math.random() - 0.5) * 1000 * 60 * 60 * 24; // ±1 day jitter
+        return (bTime + jitter) - aTime;
       })
-      .filter((p) => Number(p.discountPct || 0) > 0)
-      .sort((a, b) => (b.discountPct || 0) - (a.discountPct || 0))
-    const flashTotal = flashRanked.length;
-    const flashTotalPages = Math.ceil(flashTotal / flashLimit) || 1;
-    const flashStart = (flashPage - 1) * flashLimit;
-    const flashPaged = flashRanked.slice(flashStart, flashStart + flashLimit);
+      .slice(0, NEW_ARRIVALS_TARGET);
+
+    const newArrivals = await attachMerchantSummary(newArrivalsShuffled);
 
     // 5) Category sections (trending থেকে ভাগ করা)
-    const categories = {};
+    const categoryMap = {};
     for (const p of rankedTrending) {
       const c = p.category || "General";
-      if (!categories[c]) categories[c] = [];
-      if (categories[c].length < 12) categories[c].push(p);
+      if (!categoryMap[c]) categoryMap[c] = [];
+      if (categoryMap[c].length < 12) categoryMap[c].push(p);
     }
+
+    // 6) ourProducts — diverse: different categories + different merchants (random each request)
+    const allInStockRows = await MerchentStore.findAll({
+      where: { stock: { [Op.gt]: 0 } },
+      attributes: ["id", "name", "price", "oldPrice", "images", "stock",
+                   "category", "subCategory", "merchantId",
+                   "averageRating", "totalReviews", "createdAt"],
+      order: [["createdAt", "DESC"]],
+      limit: 400,
+    });
+
+    const allInStockJson = allInStockRows.map((p) => ({
+      ...p.toJSON(),
+      images: cleanImages(p.toJSON().images),
+    }));
+
+    // group by category → per category pick max 2 per merchant, max 6 products
+    const byCat = {};
+    for (const p of allInStockJson) {
+      const cat = p.category || "General";
+      if (!byCat[cat]) byCat[cat] = [];
+      byCat[cat].push(p);
+    }
+
+    const TARGET_PER_CAT = 6; // products to show per category row
+
+    // Score a product by quality (higher = better)
+    const scoreProduct = (p) => {
+      const rating   = Number(p.averageRating || 0);
+      const reviews  = Number(p.totalReviews  || 0);
+      const discount = calcDiscountPct(p.price, p.oldPrice);
+      const stock    = Number(p.stock || 0);
+      const ageDays  = (Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+      const freshBoost = ageDays <= 7 ? 8 : ageDays <= 30 ? 4 : 0;
+      // small random jitter (0-3) so same-score products rotate across requests
+      const jitter = Math.random() * 3;
+      return rating * 12 + Math.log1p(reviews) * 5 + discount * 0.8 +
+             Math.min(stock, 50) * 0.1 + freshBoost + jitter;
+    };
+
+    const ourProductsPool = [];
+    for (const items of Object.values(byCat)) {
+      const uniqueMerchants = new Set(items.map((p) => p.merchantId)).size;
+
+      // Score all products in this category
+      const scored = items
+        .map((p) => ({ ...p, _score: scoreProduct(p) }))
+        .sort((a, b) => b._score - a._score);
+
+      // Per-merchant quota: fair share first
+      const initialQuota = Math.max(1, Math.ceil(TARGET_PER_CAT / uniqueMerchants));
+      const merchantCount = {};
+      const picked = [];
+
+      // Pass 1: take up to initialQuota per merchant
+      for (const p of scored) {
+        if (picked.length >= TARGET_PER_CAT) break;
+        const mid = p.merchantId;
+        if ((merchantCount[mid] || 0) < initialQuota) {
+          merchantCount[mid] = (merchantCount[mid] || 0) + 1;
+          picked.push(p);
+        }
+      }
+
+      // Pass 2: if still below TARGET (some merchants had fewer products),
+      // fill remaining slots from any merchant — best score wins
+      if (picked.length < TARGET_PER_CAT) {
+        const pickedIds = new Set(picked.map((p) => p.id));
+        for (const p of scored) {
+          if (picked.length >= TARGET_PER_CAT) break;
+          if (!pickedIds.has(p.id)) {
+            picked.push(p);
+            pickedIds.add(p.id);
+          }
+        }
+      }
+
+      ourProductsPool.push(...picked.slice(0, TARGET_PER_CAT).map(({ _score, ...p }) => p));
+    }
+
+    // Keep category structure intact — shuffle within each category, no global slice
+    // so ALL categories always appear regardless of total product count
+    const ourProducts = await attachMerchantSummary(ourProductsPool);
 
     return res.json({
       success: true,
       days,
       trending: rankedTrending,
-      flash: flashPaged,
-      flashMeta: {
-        page: flashPage,
-        limit: flashLimit,
-        total: flashTotal,
-        totalPages: flashTotalPages,
-        hasNext: flashPage < flashTotalPages,
-        hasPrev: flashPage > 1,
-      },
-      categorySections: Object.entries(categories).map(
-        ([category, products]) => ({
-          category,
-          products,
-        })
-      ),
+      newArrivals,
+      categorySections: Object.entries(categoryMap).map(([category, products]) => ({
+        category,
+        products,
+      })),
+      ourProducts,
     });
   } catch (e) {
-    console.error("getHomeSections error:", e);
+
     return res
       .status(500)
       .json({ success: false, message: e.message, stack: e.stack });

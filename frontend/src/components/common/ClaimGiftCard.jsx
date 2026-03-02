@@ -13,7 +13,7 @@ import {
 } from "@ant-design/icons";
 import axios from "axios";
 import { useSelector } from "react-redux";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config/env";
 
 const API = axios.create({
@@ -139,6 +139,7 @@ function ClaimSuccessBanner({ result, onClaimAnother }) {
 export default function ClaimGiftCard() {
   const currentUser = useSelector((state) => state.auth.user);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [displayCode, setDisplayCode] = useState("");
   const [preview, setPreview] = useState(null);
@@ -146,6 +147,21 @@ export default function ClaimGiftCard() {
   const [claiming, setClaiming] = useState(false);
   const [claimResult, setClaimResult] = useState(null);
   const [codeError, setCodeError] = useState("");
+  const [blockUntil, setBlockUntil] = useState(null);
+
+  // ✅ Check if user is blocked on mount
+  useEffect(() => {
+    const storedBlock = localStorage.getItem("gc_verify_block");
+    if (storedBlock) {
+      const expiry = parseInt(storedBlock, 10);
+      if (Date.now() < expiry) {
+        setBlockUntil(expiry);
+      } else {
+        localStorage.removeItem("gc_verify_block");
+        localStorage.removeItem("gc_verify_attempts");
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const qs = new URLSearchParams(location.search);
@@ -178,7 +194,30 @@ export default function ClaimGiftCard() {
     setClaimResult(null);
   };
 
+  // ✅ Helper to handle failed attempts
+  const registerFailedAttempt = () => {
+    const attempts = parseInt(localStorage.getItem("gc_verify_attempts") || "0", 10) + 1;
+    localStorage.setItem("gc_verify_attempts", attempts);
+
+    if (attempts >= 4) {
+      const expiry = Date.now() + 24 * 60 * 60 * 1000; // 24 hours block
+      localStorage.setItem("gc_verify_block", expiry);
+      setBlockUntil(expiry);
+      message.error("Too many failed attempts. You are blocked for 24 hours.");
+    }
+  };
+
   const handleVerify = async (forcedCode) => {
+    // ✅ Check block status before verifying
+    if (blockUntil) {
+      if (Date.now() < blockUntil) {
+        setCodeError("Verification blocked due to too many failed attempts. Try again later.");
+        return;
+      }
+      setBlockUntil(null);
+      localStorage.removeItem("gc_verify_block");
+    }
+
     const code = (forcedCode ?? displayCode).trim();
 
     if (!code || code === "GIFT-" || code.length < 9) {
@@ -192,9 +231,13 @@ export default function ClaimGiftCard() {
       const res = await API.get(`/giftcards/verify/${encodeURIComponent(code)}`);
       setPreview(res.data);
       if (!res.data.valid) {
+        registerFailedAttempt(); // ❌ Failed
         setCodeError(res.data.message || "This code is not valid");
+      } else {
+        localStorage.removeItem("gc_verify_attempts"); // ✅ Success (reset counter)
       }
     } catch (err) {
+      registerFailedAttempt(); // ❌ Error/Failed
       setCodeError(err.response?.data?.message || "Verification failed. Try again.");
     } finally {
       setVerifying(false);
@@ -234,13 +277,22 @@ export default function ClaimGiftCard() {
       <div className="absolute inset-0 -z-10 gc-soft-grid opacity-[0.28]" />
 
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-7 sm:mb-9">
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-zinc-900">
-            Claim a Gift Card
-          </h1>
-          <p className="text-zinc-600 mt-2">
-            Paste your code (or open a redeem link) to add balance.
-          </p>
+        <div className="mb-7 sm:mb-9 flex items-start justify-between gap-4 flex-wrap">
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              className="rounded-2xl"
+              onClick={() => navigate("/profile/my-giftcards")}
+            >
+              My Cards
+            </Button>
+            <Button
+              className="rounded-2xl"
+              onClick={() => navigate("/gift-card")}
+            >
+              Send a Gift Card
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
@@ -261,7 +313,7 @@ export default function ClaimGiftCard() {
                     <Input
                       size="large"
                       className="font-mono text-lg tracking-widest flex-1"
-                      placeholder="GIFT-XXXX-XXXX"
+                      placeholder="ENTER GIFT CODE"
                       value={displayCode}
                       onChange={handleCodeChange}
                       maxLength={14}

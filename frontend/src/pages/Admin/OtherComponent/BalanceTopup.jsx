@@ -100,7 +100,7 @@ export default function BalanceTopup() {
         total: data.total || 0,
       });
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Load failed");
     } finally {
       setLoading(false);
@@ -152,7 +152,7 @@ export default function BalanceTopup() {
       fetchList(meta.page);
     } catch (e) {
       if (e?.errorFields) return;
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Action failed");
     } finally {
       setActionLoading(false);
@@ -167,7 +167,7 @@ export default function BalanceTopup() {
       message.success(`User blocked for ${days} day(s)`);
       fetchList(meta.page);
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Failed to block user");
     }
   };
@@ -180,7 +180,7 @@ export default function BalanceTopup() {
       message.success("User block removed");
       fetchList(meta.page);
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Failed to unblock user");
     }
   };
@@ -194,7 +194,7 @@ export default function BalanceTopup() {
       const nextPage = rows.length === 1 && meta.page > 1 ? meta.page - 1 : meta.page;
       fetchList(nextPage);
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Delete failed");
     }
   };

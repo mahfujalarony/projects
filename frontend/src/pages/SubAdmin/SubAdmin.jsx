@@ -78,7 +78,7 @@ export default function SubAdminPanel() {
         const firstKey = (perms.length && ALL_TABS.find((t) => perms.includes(t.perm))?.key) || null;
         setActiveKey((prev) => prev || firstKey);
       } catch (e) {
-        console.error(e);
+
         message.error("Permission load failed");
       } finally {
         if (mounted) setLoading(false);

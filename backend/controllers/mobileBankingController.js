@@ -30,7 +30,6 @@ exports.createMobileBanking = async (req, res) => {
 
     return res.json({ success: true, data: row });
   } catch (err) {
-    console.error("createMobileBanking error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -42,7 +41,6 @@ exports.getAllMobileBankings = async (req, res) => {
     });
     return res.json({ success: true, data: rows });
   } catch (err) {
-    console.error("getAllMobileBankings error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -56,7 +54,6 @@ exports.getOneMobileBanking = async (req, res) => {
 
     return res.json({ success: true, data: row });
   } catch (err) {
-    console.error("getOneMobileBanking error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -97,7 +94,6 @@ exports.updateMobileBanking = async (req, res) => {
     await row.save();
     return res.json({ success: true, data: row });
   } catch (err) {
-    console.error("updateMobileBanking error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -112,7 +108,7 @@ exports.deleteMobileBanking = async (req, res) => {
     await row.destroy();
     return res.json({ success: true, message: "Deleted" });
   } catch (err) {
-    console.error("deleteMobileBanking error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

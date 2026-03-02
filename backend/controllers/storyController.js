@@ -77,7 +77,7 @@ const deleteStoryMediaFiles = async (story) => {
         await fs.unlink(filePath);
       } catch (err) {
         if (err?.code !== "ENOENT") {
-          console.error("deleteStoryMediaFiles unlink error:", err.message || err);
+
         }
       }
     })
@@ -245,7 +245,7 @@ exports.createStory = async (req, res) => {
     if (uploadedUrls.length) {
       await deleteStoryMediaFiles({ mediaUrls: uploadedUrls });
     }
-    console.error("createStory error:", e);
+
     return res
       .status(e.statusCode || 500)
       .json({ success: false, message: e.statusCode ? e.message : "Server error" });
@@ -280,7 +280,7 @@ exports.getStoryFeed = async (req, res) => {
 
     return res.json({ success: true, stories: rows });
   } catch (e) {
-    console.error("getStoryFeed error:", e);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -305,7 +305,7 @@ exports.getMyStories = async (req, res) => {
 
     return res.json({ success: true, stories: rows });
   } catch (e) {
-    console.error("getMyStories error:", e);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -347,7 +347,7 @@ exports.updateStory = async (req, res) => {
     await story.save();
     return res.json({ success: true, message: "Story updated", story });
   } catch (e) {
-    console.error("updateStory error:", e);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -377,7 +377,7 @@ exports.deleteStory = async (req, res) => {
     await story.destroy();
     return res.json({ success: true, message: "Story deleted" });
   } catch (e) {
-    console.error("deleteStory error:", e);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

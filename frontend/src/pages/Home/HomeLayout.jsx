@@ -113,7 +113,7 @@ const HomeLayout = () => {
       } catch (e) {
         const isAbortError = e?.name === "AbortError";
         if (isAbortError) return;
-        console.error(e);
+
         if (!ignore) {
           if (!cachedCategories?.length) setCategories([]);
           if (!cachedCategories?.length) message.error(e.message || "Category load failed");
@@ -210,8 +210,7 @@ const HomeLayout = () => {
             trigger={null}
             collapsible
             collapsed={collapsed}
-            width={172}
-            collapsedWidth={64}
+            collapsedWidth={80}
             style={{
               overflow: "auto",
               height: "100vh",
@@ -232,7 +231,7 @@ const HomeLayout = () => {
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             placement="left"
-            width={260}
+            size={220}
             mask
             maskClosable
             styles={{

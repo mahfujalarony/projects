@@ -154,7 +154,7 @@ exports.adminDeleteOffer = async (req, res) => {
       try {
         imageRemoved = await deleteUploadFileIfSafe(imagePath);
       } catch (cleanupErr) {
-        console.error("adminDeleteOffer image cleanup error:", cleanupErr);
+
       }
     }
 

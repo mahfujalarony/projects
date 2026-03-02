@@ -54,7 +54,7 @@ exports.listWalletsByProvider = async (req, res) => {
 
     return res.json({ success: true, data: { provider, wallets: normalizedWallets } });
   } catch (err) {
-    console.error("listWalletsByProvider error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -113,7 +113,7 @@ exports.createWallet = async (req, res) => {
 
     return res.json({ success: true, data: row });
   } catch (err) {
-    console.error("createWallet error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -172,7 +172,7 @@ exports.updateWallet = async (req, res) => {
     await row.save();
     return res.json({ success: true, data: row });
   } catch (err) {
-    console.error("updateWallet error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -187,7 +187,7 @@ exports.deleteWallet = async (req, res) => {
     await row.destroy(); // cascade থাকলে numbers ও delete হবে
     return res.json({ success: true, message: "Deleted" });
   } catch (err) {
-    console.error("deleteWallet error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -207,7 +207,7 @@ exports.listWalletNumbers = async (req, res) => {
 
     return res.json({ success: true, data: { wallet, numbers } });
   } catch (err) {
-    console.error("listWalletNumbers error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -245,7 +245,7 @@ exports.addWalletNumber = async (req, res) => {
 
     return res.json({ success: true, data: row });
   } catch (err) {
-    console.error("addWalletNumber error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -261,7 +261,7 @@ exports.deleteWalletNumber = async (req, res) => {
     await row.destroy();
     return res.json({ success: true, message: "Deleted" });
   } catch (err) {
-    console.error("deleteWalletNumber error:", err);
+
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

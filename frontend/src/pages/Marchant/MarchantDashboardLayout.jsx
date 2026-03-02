@@ -14,6 +14,7 @@ import {
   RefreshCcw,
   PlusCircle,
   X,
+  Home,
 } from "lucide-react";
 import { API_BASE_URL, UPLOAD_BASE_URL } from "../../config/env";
 
@@ -210,7 +211,8 @@ const MerchantDashboardLayout = () => {
               overflow: "hidden",
             },
           }}
-          width={278}
+          size={220}
+          
         >
           <div
             style={{
@@ -284,61 +286,194 @@ const MerchantDashboardLayout = () => {
       )}
 
       <Layout>
-        <Header
-          style={{
-            padding: 0,
-            background: colorBgContainer,
-            position: "sticky",
-            top: 0,
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            boxShadow: "0 1px 4px rgba(0,21,41,0.08)",
-          }}
-        >
+      <Header
+        style={{
+          padding: screens.sm ? "0 20px" : "0 12px",
+          position: "sticky",
+          top: 0,
+          zIndex: 1000,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          height: 64,
+          
+          // Enhanced glass + gradient background
+          background: "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(241,245,249,0.92) 50%, rgba(224,242,254,0.88) 100%)",
+          backdropFilter: "blur(12px)",
+          borderBottom: "1px solid rgba(203,213,225,0.3)",
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.03), 0 2px 6px rgba(15, 23, 42, 0.05)",
+        }}
+      >
+        {/* LEFT SECTION */}
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: screens.sm ? 12 : 6,
+          flexShrink: 0,
+        }}>
           <Button
             type="text"
-            icon={collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            icon={collapsed ? <PanelLeftOpen size={screens.sm ? 18 : 16} /> : <PanelLeftClose size={screens.sm ? 18 : 16} />}
             onClick={() => {
               if (screens.md) setCollapsed(!collapsed);
               else setDrawerVisible(true);
             }}
-            style={{ fontSize: 16, width: 64, height: 64 }}
+            style={{
+              width: screens.sm ? 42 : 36,
+              height: screens.sm ? 42 : 36,
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.8)",
+              border: "1px solid rgba(226,232,240,0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.2s ease",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
+            }}
+            className="hover-scale"
           />
 
-          <div style={{ flex: 1 }} />
+          <Button
+            type="text"
+            icon={<Home size={screens.sm ? 18 : 16} />}
+            onClick={() => navigate("/")}
+            style={{
+              width: screens.sm ? 42 : 36,
+              height: screens.sm ? 42 : 36,
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.8)",
+              border: "1px solid rgba(226,232,240,0.6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.2s ease",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
+            }}
+            className="hover-scale"
+            aria-label="Home"
+            title="Home"
+          />
+        </div>
 
-          <Space style={{ paddingRight: 16 }}>
-            <Tag
-              icon={<Wallet size={14} />}
-              color="green"
-              style={{
-                padding: "6px 12px",
-                borderRadius: 999,
-                fontWeight: 600,
-                fontSize: 13,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              Balance: BDT {balanceLoading ? "..." : balance}
-            </Tag>
+        {/* TITLE - visible on tablet/desktop, hidden on mobile */}
+        {screens.md ? (
+          <div style={{ 
+            minWidth: 0, 
+            marginLeft: 8,
+            flexShrink: 1,
+          }}>
+            <div style={{ 
+              fontWeight: 700, 
+              color: "#0f172a", 
+              lineHeight: 1.2,
+              fontSize: screens.lg ? 16 : 15,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}>
+              Dashboard
+            </div>
+            <div style={{ 
+              fontSize: 11, 
+              color: "#64748b",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}>
+              Quick overview
+            </div>
+          </div>
+        ) : null}
 
+        {/* SPACER - only when title exists */}
+        {screens.md ? <div style={{ flex: 1, minWidth: 16 }} /> : <div style={{ flex: 1 }} />}
+
+        {/* RIGHT SECTION */}
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: screens.sm ? 8 : 4,
+          flexShrink: 0,
+          maxWidth: screens.md ? "50%" : "70%",
+        }}>
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: screens.sm ? 6 : 4,
+          padding: screens.sm ? "4px 12px" : "2px 8px",
+          height: screens.sm ? 32 : 28,
+          borderRadius: 20,
+          background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+          border: "1px solid rgba(74,222,128,0.3)",
+          color: "#166534",
+          fontWeight: 600,
+          fontSize: screens.sm ? 12 : 11,
+          lineHeight: 1,
+          whiteSpace: "nowrap",
+          maxWidth: screens.sm ? 180 : 100,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          boxSizing: "border-box",
+        }}
+        title={`Balance: BDT ${balanceLoading ? "..." : balance}`}
+      >
+        <Wallet size={screens.sm ? 13 : 11} /> 
+        {screens.sm ? (
+          <>BDT {balanceLoading ? "..." : balance}</>
+        ) : (
+          <>{balanceLoading ? "..." : balance}</>
+        )}
+      </div>
+          <div style={{ 
+            display: "flex", 
+            gap: screens.sm ? 6 : 4,
+          }}>
             <Button
               type="primary"
-              size="small"
-              icon={<PlusCircle size={14} />}
               onClick={() => navigate("/add-balance")}
-            >
-              {screens.sm ? "Add Balance" : null}
-            </Button>
+              icon={<PlusCircle size={screens.sm ? 18 : 16} />}
+              style={{
+                width: screens.sm ? 42 : 36,
+                height: screens.sm ? 42 : 36,
+                borderRadius: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+                border: "none",
+                boxShadow: "0 4px 10px rgba(59,130,246,0.3)",
+                transition: "all 0.2s ease",
+              }}
+              className="hover-scale"
+              aria-label="Add Balance"
+              title="Add Balance"
+            />
 
-            <Button onClick={loadBalance} size="small" icon={<RefreshCcw size={14} />}>
-              Refresh
-            </Button>
-          </Space>
-        </Header>
+            <Button
+              onClick={loadBalance}
+              icon={<RefreshCcw size={screens.sm ? 18 : 16} />}
+              style={{
+                width: screens.sm ? 42 : 36,
+                height: screens.sm ? 42 : 36,
+                borderRadius: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(255,255,255,0.8)",
+                border: "1px solid rgba(226,232,240,0.6)",
+                transition: "all 0.2s ease",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
+              }}
+              className="hover-scale"
+              aria-label="Refresh"
+              title="Refresh"
+            />
+          </div>
+        </div>
+      </Header>
+
 
         <Content
           style={{

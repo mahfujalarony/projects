@@ -222,7 +222,7 @@ const ChatLayout = () => {
           });
           setChatList(firstPage.rows);
         } catch (error) {
-          console.error("Failed to refresh conversations:", error);
+
         }
         return;
       }
@@ -282,7 +282,7 @@ const ChatLayout = () => {
         messageCursorRef.current = nextBeforeId;
         messageHasMoreRef.current = hasMore;
       } catch (error) {
-        console.error("Failed to load messages:", error);
+
       } finally {
         if (reset) {
           messageLoadingRef.current = false;
@@ -378,7 +378,7 @@ const ChatLayout = () => {
       });
       setProfileData(res.data || null);
     } catch (error) {
-      console.error("Failed to load user details:", error);
+
       setProfileData(null);
     } finally {
       setProfileLoading(false);
@@ -1040,7 +1040,7 @@ const ChatLayout = () => {
               {useCompactSupportHeader && (
                 <Drawer
                   placement="bottom"
-                  height="auto"
+                  size={200}
                   open={conversationInfoOpen}
                   onClose={() => setConversationInfoOpen(false)}
                   title="Conversation Details"
@@ -1247,8 +1247,7 @@ const ChatLayout = () => {
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
         placement={isDesktop ? "right" : "bottom"}
-        width={isDesktop ? 420 : undefined}
-        height={isDesktop ? undefined : "78vh"}
+        size={isDesktop ? 420 : 300}
       >
         {profileLoading ? (
           <Skeleton active avatar paragraph={{ rows: 6 }} />
@@ -1305,25 +1304,31 @@ const ChatLayout = () => {
             {!Array.isArray(profileData?.recentOrders) || !profileData.recentOrders.length ? (
               <Empty description="No recent orders" />
             ) : (
-              <List
-                size="small"
-                dataSource={profileData.recentOrders.slice(0, 8)}
-                renderItem={(item) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      title={<Text strong>{item?.name || `Order #${item?.id}`}</Text>}
-                      description={
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <Tag>{item?.status || "pending"}</Tag>
-                          <Tag>Qty: {Number(item?.quantity || 0)}</Tag>
-                          <Tag>Price: {Number(item?.price || 0).toFixed(2)}</Tag>
-                          <Text type="secondary">{new Date(item?.createdAt).toLocaleDateString()}</Text>
-                        </div>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
+              <div className="space-y-2">
+                {profileData.recentOrders.slice(0, 8).map((item) => (
+                  <div
+                    key={item?.id}
+                    className="p-2 rounded border bg-white"
+                    style={{ display: "flex", gap: 12 }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <div>
+                        <Text strong>{item?.name || `Order #${item?.id}`}</Text>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                        <Tag>{item?.status || "pending"}</Tag>
+                        <Tag>Qty: {Number(item?.quantity || 0)}</Tag>
+                        <Tag>Price: {Number(item?.price || 0).toFixed(2)}</Tag>
+
+                        <Text type="secondary">
+                          {new Date(item?.createdAt).toLocaleDateString()}
+                        </Text>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </>
         )}

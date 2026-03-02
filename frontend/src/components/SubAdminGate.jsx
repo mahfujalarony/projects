@@ -58,7 +58,6 @@ const SubAdminGate = ({ fallbackTo = "/login" }) => {
         );
       }
     } catch (e) {
-      console.error("SubAdminGate fetchMe error:", e);
       setIsSubAdmin(false);
       setLoading(false);
     }

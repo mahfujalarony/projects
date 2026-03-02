@@ -113,10 +113,7 @@ const getToken = () => {
     try {
       setLoading(true);
       setError("");
-
       const token = getToken();
-      console.log("token:", token);
-
       const res = await fetch(`${API_URL}/api/orders/my-orders?${query}`, {
         headers: {
           "Content-Type": "application/json",
@@ -150,7 +147,6 @@ const getToken = () => {
 
     try {
       const token = getToken();
-      console.log("token:", token);
 
       const res = await fetch(`${API_URL}/api/orders/my-orders/${orderId}/cancel`, {
         method: "PATCH",

@@ -1,24 +1,38 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import {
-  Button, Input, Form, Card, message,
-  InputNumber, Typography, Spin, TreeSelect, Select,
+  Button,
+  Input,
+  Form,
+  Card,
+  message,
+  InputNumber,
+  Typography,
+  Spin,
+  TreeSelect,
+  Select,
 } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
+import {
+  CloudUploadOutlined,
+  DeleteOutlined,
+  DragOutlined,
+  CustomerServiceOutlined,
+} from "@ant-design/icons";
 
 import { API_BASE_URL, UPLOAD_BASE_URL } from "../../../config/env";
 
 const { Text } = Typography;
 
-const MAX_SIZE   = 10 * 1024 * 1024;
+const MAX_SIZE = 10 * 1024 * 1024;
 const MAX_IMAGES = 5;
 
 const API_CATEGORIES = `${API_BASE_URL}/api/categories`;
-const UPLOAD_URL     = `${UPLOAD_BASE_URL}/upload/image`;
-const CREATE_URL     = `${API_BASE_URL}/api/products/create`;
+const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+const CREATE_URL = `${API_BASE_URL}/api/products/create`;
 
 const escapeHtml = (value = "") =>
   String(value)
@@ -46,8 +60,12 @@ const buildSpecTableHtml = (rows = []) => {
         .map(
           (r) => `
       <tr>
-        <td style="border:1px solid #d9d9d9;padding:8px 10px;background:#fafafa;font-weight:600;width:35%;">${escapeHtml(r.key)}</td>
-        <td style="border:1px solid #d9d9d9;padding:8px 10px;">${escapeHtml(r.value)}</td>
+        <td style="border:1px solid #d9d9d9;padding:8px 10px;background:#fafafa;font-weight:600;width:35%;">${escapeHtml(
+          r.key
+        )}</td>
+        <td style="border:1px solid #d9d9d9;padding:8px 10px;">${escapeHtml(
+          r.value
+        )}</td>
       </tr>`
         )
         .join("")}
@@ -70,22 +88,33 @@ const findSubCategoryById = (nodes = [], id) => {
    CreateItem
 ═══════════════════════════════════════════ */
 const CreateItem = () => {
-  const navigate   = useNavigate();
+  const navigate = useNavigate();
 
   const reduxToken = useSelector((state) => state.auth?.token);
   const localToken = JSON.parse(localStorage.getItem("userInfo") || "null")?.token;
-  const token      = reduxToken || localToken;
+  const token = reduxToken || localToken;
 
-  const [categories,    setCategories]    = useState([]);
-  const [catLoading,    setCatLoading]    = useState(false);
-  const [categoryId,    setCategoryId]    = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [catLoading, setCatLoading] = useState(false);
+  const [categoryId, setCategoryId] = useState(null);
   const [subCategoryId, setSubCategoryId] = useState(null);
-  const [images,        setImages]        = useState([]);
-  const [errorMessage,  setErrorMessage]  = useState("");
-  const [specRows,      setSpecRows]      = useState([{ key: "", value: "" }]);
+
+  // images
+  const [images, setImages] = useState([]);
+  const [dragIndex, setDragIndex] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const [errorMessage, setErrorMessage] = useState("");
+  const [specRows, setSpecRows] = useState([{ key: "", value: "" }]);
+
+  // Quill ref
+  const quillRef = useRef(null);
 
   const {
-    handleSubmit, control, reset, setValue, getValues, watch,
+    handleSubmit,
+    control,
+    reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm({
     defaultValues: { name: "", price: null, oldPrice: null, stock: null, description: "" },
@@ -97,7 +126,7 @@ const CreateItem = () => {
     (async () => {
       try {
         setCatLoading(true);
-        const res  = await fetch(API_CATEGORIES);
+        const res = await fetch(API_CATEGORIES);
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || "Failed to load categories");
         const arr = Array.isArray(data) ? data : [];
@@ -111,22 +140,29 @@ const CreateItem = () => {
           }
         }
       } catch (e) {
-        if (!ignore) { setCategories([]); message.error(e.message); }
+        if (!ignore) {
+          setCategories([]);
+          message.error(e.message);
+        }
       } finally {
         if (!ignore) setCatLoading(false);
       }
     })();
-    return () => { ignore = true; };
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const selectedCategory = useMemo(
     () => categories.find((c) => c.id === categoryId),
     [categories, categoryId]
   );
+
   const selectedSubCategory = useMemo(
     () => findSubCategoryById(selectedCategory?.subCategories || [], subCategoryId),
     [selectedCategory, subCategoryId]
   );
+
   const categoryOptions = useMemo(
     () =>
       (Array.isArray(categories) ? categories : [])
@@ -150,60 +186,161 @@ const CreateItem = () => {
     return mapSubTree(Number(selectedCategory.id), selectedCategory.subCategories);
   }, [selectedCategory]);
 
-  /* ── images ── */
-  const imagePreviews = useMemo(() => images.map((f) => URL.createObjectURL(f)), [images]);
+  /* ─────────────────────────────────────────
+     Images: add + preview + remove + reorder
+  ───────────────────────────────────────── */
+  const imagePreviews = useMemo(
+    () => images.map((f) => ({ file: f, url: URL.createObjectURL(f) })),
+    [images]
+  );
+
+  useEffect(() => {
+    // cleanup object URLs when images change/unmount
+    return () => {
+      imagePreviews.forEach((p) => URL.revokeObjectURL(p.url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [images]);
+
+  const addFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    const onlyImages = files.filter((f) => f.type?.startsWith("image/"));
+    if (onlyImages.length !== files.length) message.error("Only image files are allowed.");
+
+    const valid = onlyImages.filter((f) => f.size <= MAX_SIZE);
+    if (valid.length !== onlyImages.length) message.error("Each image must be 10MB or less");
+
+    setImages((prev) => [...prev, ...valid].slice(0, MAX_IMAGES));
+  };
 
   const handleImageChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const valid = files.filter((f) => f.size <= MAX_SIZE);
-    if (valid.length !== files.length) message.error("Each image must be 10MB or less");
-    setImages((prev) => [...prev, ...valid].slice(0, MAX_IMAGES));
+    addFiles(e.target.files);
     e.target.value = "";
   };
+
   const removeImage = (i) => setImages((prev) => prev.filter((_, idx) => idx !== i));
 
-  /* option 2: table builder -> submit time e description er sathe merge */
+  const moveImage = (from, to) => {
+    setImages((prev) => {
+      const next = [...prev];
+      const item = next[from];
+      if (!item) return prev;
+      next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const onThumbDragStart = (idx) => () => setDragIndex(idx);
+
+  const onThumbDragOver = (idx) => (e) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === idx) return;
+    moveImage(dragIndex, idx);
+    setDragIndex(idx);
+  };
+
+  const onThumbDragEnd = () => setDragIndex(null);
+
+  const onDropZoneDragOver = (e) => e.preventDefault();
+
+  const onDropZoneDrop = (e) => {
+    e.preventDefault();
+    addFiles(e.dataTransfer.files);
+  };
+
+  /* ─────────────────────────────────────────
+     Spec Table Builder
+  ───────────────────────────────────────── */
   const updateSpecRow = (index, field, value) => {
     setSpecRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   };
+
   const addSpecRow = () => setSpecRows((prev) => [...prev, { key: "", value: "" }]);
+
   const removeSpecRow = (index) => {
-    setSpecRows((prev) => (prev.length <= 1 ? [{ key: "", value: "" }] : prev.filter((_, i) => i !== index)));
+    setSpecRows((prev) =>
+      prev.length <= 1 ? [{ key: "", value: "" }] : prev.filter((_, i) => i !== index)
+    );
   };
+
   const specTableHtml = useMemo(() => buildSpecTableHtml(specRows), [specRows]);
 
   /* ── money helpers ── */
   const moneyFormatter = (v) =>
-    v === null || v === undefined || v === "" ? ""
+    v === null || v === undefined || v === ""
+      ? ""
       : `৳ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
   const moneyParser = (v) => (v ? v.replace(/[৳,\s]/g, "") : "");
 
-  /* ── quill config ── */
-  const modules = useMemo(() => ({
-    toolbar: {
-      container: [
-        [{ header: [1, 2, false] }],
-        ["bold", "italic", "underline", "strike"],
-        [{ list: "ordered" }, { list: "bullet" }],
-        ["link", "image"],
-        ["clean"],
-      ],
-    },
-    clipboard: { matchVisual: false },
-    history: { delay: 1000, maxStack: 100, userOnly: true },
-  }), []);
+  /* ─────────────────────────────────────────
+     Quill config (NO image button)
+  ───────────────────────────────────────── */
+  const modules = useMemo(
+    () => ({
+      toolbar: {
+        container: [
+          [{ header: [1, 2, false] }],
+          ["bold", "italic", "underline", "strike"],
+          [{ list: "ordered" }, { list: "bullet" }],
+          ["link"], // ✅ image removed
+          ["clean"],
+        ],
+      },
+      clipboard: { matchVisual: false },
+      history: { delay: 1000, maxStack: 100, userOnly: true },
+    }),
+    []
+  );
 
-  const formats = [
-    "header", "bold", "italic", "underline", "strike",
-    "list", "link", "image",
-  ];
+  const formats = ["header", "bold", "italic", "underline", "strike", "list", "link"];
 
-  /* ── submit ── */
+  // Block image paste/drop inside Description
+  useEffect(() => {
+    const editor = quillRef.current?.getEditor?.();
+    if (!editor) return;
+
+    const root = editor.root;
+
+    const blockIfImageInClipboard = (e) => {
+      const items = e.clipboardData?.items || [];
+      for (const it of items) {
+        if (it.type?.startsWith("image/")) {
+          e.preventDefault();
+          message.error("Image paste is disabled in Description.");
+          return;
+        }
+      }
+    };
+
+    const blockIfImageDrop = (e) => {
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.some((f) => f.type?.startsWith("image/"))) {
+        e.preventDefault();
+        message.error("Image drop is disabled in Description.");
+      }
+    };
+
+    root.addEventListener("paste", blockIfImageInClipboard);
+    root.addEventListener("drop", blockIfImageDrop);
+
+    return () => {
+      root.removeEventListener("paste", blockIfImageInClipboard);
+      root.removeEventListener("drop", blockIfImageDrop);
+    };
+  }, []);
+
+  /* ─────────────────────────────────────────
+     Submit
+  ───────────────────────────────────────── */
   const onSubmit = async (data) => {
     try {
       setErrorMessage("");
-      if (!categoryId)    throw new Error("Select a category");
+
+      if (!categoryId) throw new Error("Select a category");
       if (!images.length) throw new Error("Select at least one image");
 
       const uploadResponses = await Promise.all(
@@ -213,32 +350,33 @@ const CreateItem = () => {
           return fetch(UPLOAD_URL, { method: "POST", body: fd });
         })
       );
+
       const uploadJson = await Promise.all(
         uploadResponses.map(async (res) => {
           if (!res.ok) throw new Error("Image upload failed");
           return res.json();
         })
       );
+
       const imageUrls = uploadJson.flatMap((u) => u.urls || []);
       if (!imageUrls.length) throw new Error("No image URL returned");
 
       const baseDescription = String(data.description || "");
-      const finalDescription =
-        `${baseDescription}${specTableHtml ? `${baseDescription ? "<p><br></p>" : ""}${specTableHtml}` : ""}`;
+      const finalDescription = `${baseDescription}${
+        specTableHtml ? `${baseDescription ? "<p><br></p>" : ""}${specTableHtml}` : ""
+      }`;
 
       const payload = {
-        name:          data.name.trim(),
-        price:         Number(data.price),
-        oldPrice:      data.oldPrice != null && data.oldPrice !== "" ? Number(data.oldPrice) : null,
-        stock:         Number(data.stock),
+        name: data.name.trim(),
+        price: Number(data.price),
+        oldPrice: data.oldPrice != null && data.oldPrice !== "" ? Number(data.oldPrice) : null,
+        stock: Number(data.stock),
         categoryId,
         subCategoryId: subCategoryId || null,
-        category:      selectedCategory?.slug || selectedCategory?.name || null,
-        subCategory:
-          selectedSubCategory?.slug ||
-          selectedSubCategory?.name || null,
-        description:   finalDescription,
-        imageUrl:      imageUrls,
+        category: selectedCategory?.slug || selectedCategory?.name || null,
+        subCategory: selectedSubCategory?.slug || selectedSubCategory?.name || null,
+        description: finalDescription,
+        imageUrl: imageUrls, // order will follow thumbnail order ✅
       };
 
       const response = await fetch(CREATE_URL, {
@@ -258,7 +396,7 @@ const CreateItem = () => {
       setImages([]);
       setSpecRows([{ key: "", value: "" }]);
     } catch (err) {
-      console.error(err);
+
       setErrorMessage(err.message);
       message.error(err.message);
     }
@@ -268,8 +406,9 @@ const CreateItem = () => {
      RENDER
   ════════════════════════════════════════ */
   const descriptionValue = watch("description") || "";
-  const finalDescriptionPreview =
-    `${descriptionValue}${specTableHtml ? `${descriptionValue ? "<p><br></p>" : ""}${specTableHtml}` : ""}`;
+  const finalDescriptionPreview = `${descriptionValue}${
+    specTableHtml ? `${descriptionValue ? "<p><br></p>" : ""}${specTableHtml}` : ""
+  }`;
 
   return (
     <div style={{ maxWidth: 900, margin: "20px auto", padding: "0 12px 50px" }}>
@@ -278,14 +417,16 @@ const CreateItem = () => {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
             <span>
               Add Product{" "}
-              <Text type="secondary" style={{ fontSize: 12 }}>(Select Category/Subcategory)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                (Select Category/Subcategory)
+              </Text>
             </span>
             <Button onClick={() => navigate(-1)}>Back</Button>
           </div>
         }
       >
         <Form layout="vertical" onFinish={handleSubmit(onSubmit)}>
-
+          {/* Category */}
           <Form.Item label="Category" required>
             {catLoading ? (
               <Spin size="small" />
@@ -304,6 +445,7 @@ const CreateItem = () => {
             )}
           </Form.Item>
 
+          {/* Subcategory */}
           <Form.Item label="Subcategory (optional)">
             <TreeSelect
               value={subCategoryId ? `sub:${categoryId}:${subCategoryId}` : undefined}
@@ -324,14 +466,15 @@ const CreateItem = () => {
               style={{ width: "100%" }}
             />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Category select korar por oi category-r under er nested subcategory gulo ekhane dekhabe.
+              After selecting a category, the nested subcategories under that category will appear here.
             </Text>
           </Form.Item>
 
           {/* Product Name */}
           <Form.Item label="Product Name" validateStatus={errors.name ? "error" : ""} help={errors.name?.message}>
             <Controller
-              name="name" control={control}
+              name="name"
+              control={control}
               rules={{ required: "Product name required", minLength: 3 }}
               render={({ field }) => <Input {...field} />}
             />
@@ -340,21 +483,41 @@ const CreateItem = () => {
           {/* Price / Old Price / Stock */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
             <Form.Item label="Price">
-              <Controller name="price" control={control} rules={{ required: true, min: 0 }}
+              <Controller
+                name="price"
+                control={control}
+                rules={{ required: true, min: 0 }}
                 render={({ field }) => (
-                  <InputNumber {...field} style={{ width: "100%" }} formatter={moneyFormatter} parser={moneyParser} />
+                  <InputNumber
+                    {...field}
+                    style={{ width: "100%" }}
+                    formatter={moneyFormatter}
+                    parser={moneyParser}
+                  />
                 )}
               />
             </Form.Item>
+
             <Form.Item label="Old Price">
-              <Controller name="oldPrice" control={control}
+              <Controller
+                name="oldPrice"
+                control={control}
                 render={({ field }) => (
-                  <InputNumber {...field} style={{ width: "100%" }} formatter={moneyFormatter} parser={moneyParser} />
+                  <InputNumber
+                    {...field}
+                    style={{ width: "100%" }}
+                    formatter={moneyFormatter}
+                    parser={moneyParser}
+                  />
                 )}
               />
             </Form.Item>
+
             <Form.Item label="Stock">
-              <Controller name="stock" control={control} rules={{ required: true, min: 0 }}
+              <Controller
+                name="stock"
+                control={control}
+                rules={{ required: true, min: 0 }}
                 render={({ field }) => <InputNumber {...field} style={{ width: "100%" }} />}
               />
             </Form.Item>
@@ -362,28 +525,154 @@ const CreateItem = () => {
 
           {/* Images */}
           <Form.Item label={`Images (max ${MAX_IMAGES})`}>
-            <input type="file" multiple accept="image/*" onChange={handleImageChange} />
+            {/* Hidden input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleImageChange}
+              style={{ display: "none" }}
+            />
+
+            {/* Dropzone / Cloud button */}
+            <div
+              onDragOver={onDropZoneDragOver}
+              onDrop={onDropZoneDrop}
+              style={{
+                border: "1px dashed #d9d9d9",
+                borderRadius: 10,
+                padding: 16,
+                background: "#fafafa",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  role="button"
+                  title="Upload Images"
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 14,
+                    display: "grid",
+                    placeItems: "center",
+                    background: "linear-gradient(135deg, #dbeafe 0%, #cffafe 100%)",
+                    color: "#0f766e",
+                    cursor: "pointer",
+                    userSelect: "none",
+                    boxShadow: "0 1px 8px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  <CloudUploadOutlined style={{ fontSize: 24 }} />
+                </div>
+
+                <div style={{ lineHeight: 1.35 }}>
+                  <Text strong style={{ display: "block" }}>
+                    Upload product images
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Click the cloud icon or drag & drop images here (max {MAX_IMAGES}, 10MB each).
+                  </Text>
+                </div>
+              </div>
+
+              <Button onClick={() => fileInputRef.current?.click()}>Select Files</Button>
+            </div>
+
+            {/* Thumbnails + Drag reorder */}
             {images.length > 0 && (
-              <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
-                {imagePreviews.map((src, i) => (
-                  <div key={i}>
-                    <img src={src} alt="" style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 4 }} />
-                    <Button danger size="small" block onClick={() => removeImage(i)} style={{ marginTop: 4 }}>Remove</Button>
-                  </div>
-                ))}
+              <div style={{ marginTop: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Tip: Drag thumbnails to reorder (this order will be used for upload).
+                </Text>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  {imagePreviews.map((p, i) => (
+                    <div
+                      key={p.url}
+                      draggable
+                      onDragStart={onThumbDragStart(i)}
+                      onDragOver={onThumbDragOver(i)}
+                      onDragEnd={onThumbDragEnd}
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        background: "#fff",
+                        boxShadow: "0 1px 8px rgba(0,0,0,0.05)",
+                        cursor: "grab",
+                      }}
+                      title="Drag to reorder"
+                    >
+                      <div style={{ position: "relative" }}>
+                        <img
+                          src={p.url}
+                          alt=""
+                          style={{ width: "100%", height: 120, objectFit: "cover" }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 8,
+                            left: 8,
+                            background: "rgba(0,0,0,0.55)",
+                            color: "#fff",
+                            borderRadius: 10,
+                            padding: "3px 8px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 12,
+                          }}
+                        >
+                          <DragOutlined />
+                          <span>{i + 1}</span>
+                        </div>
+                      </div>
+
+                      <div style={{ padding: 8 }}>
+                        <Button
+                          danger
+                          icon={<DeleteOutlined />}
+                          size="small"
+                          block
+                          onClick={() => removeImage(i)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </Form.Item>
 
+          {/* Specification Table Builder */}
           <Form.Item label="Specification Table Builder (optional)">
-            <div style={{
-              border: "1px solid #d9d9d9",
-              borderRadius: 8,
-              padding: 12,
-              background: "#fafafa",
-              display: "grid",
-              gap: 8,
-            }}>
+            <div
+              style={{
+                border: "1px solid #d9d9d9",
+                borderRadius: 8,
+                padding: 12,
+                background: "#fafafa",
+                display: "grid",
+                gap: 8,
+              }}
+            >
               {specRows.map((row, index) => (
                 <div
                   key={index}
@@ -406,7 +695,9 @@ const CreateItem = () => {
                     onChange={(e) => updateSpecRow(index, "value", e.target.value)}
                     style={{ minWidth: 0 }}
                   />
-                  <Button danger block onClick={() => removeSpecRow(index)}>Remove</Button>
+                  <Button danger block onClick={() => removeSpecRow(index)}>
+                    Remove
+                  </Button>
                 </div>
               ))}
 
@@ -415,34 +706,64 @@ const CreateItem = () => {
               </div>
 
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Table editor box-e direct na dekhaleo submit-er somoy description-er sathe merge hoye DB te save hobe.
+                Even if it’s not shown directly in the editor, the table will be merged with the description and saved to
+                the database on submit.
               </Text>
             </div>
           </Form.Item>
 
           {/* Description */}
-          <Form.Item label="Description">
+          <Form.Item label="Description" required>
             <Controller
               name="description"
               control={control}
-              rules={{ required: true }}
+              rules={{ required: "Description is required" }}
               render={({ field }) => (
                 <ReactQuill
+                  ref={quillRef}
                   theme="snow"
                   value={field.value || ""}
                   onChange={field.onChange}
                   modules={modules}
                   formats={formats}
-                  style={{
-                    height: 260,
-                    marginBottom: 50,
-                  }}
+                  style={{ height: 260, marginBottom: 50 }}
                 />
               )}
             />
+            {/* Optional empty-state helper (kept like your previous style) */}
+            {!descriptionValue && (
+              <div style={{ marginTop: 10, padding: 12, borderRadius: 10, background: "#f6ffed", border: "1px solid #b7eb8f" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 999,
+                      display: "grid",
+                      placeItems: "center",
+                      background: "linear-gradient(135deg, #dbeafe 0%, #cffafe 100%)",
+                      color: "#0f766e",
+                      fontSize: 18,
+                      flex: "0 0 auto",
+                    }}
+                  >
+                    <CustomerServiceOutlined />
+                  </div>
+                  <div style={{ lineHeight: 1.35 }}>
+                    <Text strong style={{ display: "block" }}>
+                      Support Tip
+                    </Text>
+                    <Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                      Images are disabled in the description editor. Please upload images using the cloud icon above.
+                    </Text>
+                  </div>
+                </div>
+              </div>
+            )}
           </Form.Item>
 
-          <Form.Item label="Final Description Preview (DB te eta save hobe)">
+          {/* Final Description Preview */}
+          <Form.Item label="Final Description Preview (This is what will be saved in DB)">
             <div
               style={{
                 border: "1px solid #d9d9d9",
@@ -459,9 +780,7 @@ const CreateItem = () => {
           </Form.Item>
 
           {errorMessage && (
-            <div style={{ color: "red", textAlign: "center", marginBottom: 12 }}>
-              {errorMessage}
-            </div>
+            <div style={{ color: "red", textAlign: "center", marginBottom: 12 }}>{errorMessage}</div>
           )}
 
           <Button type="primary" htmlType="submit" loading={isSubmitting} block size="large">

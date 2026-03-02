@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { InputNumber, Rate, Button, message, Alert, Modal, Drawer, Grid, Carousel } from "antd";
+import { Button, Alert, Grid, Carousel, message } from "antd";
 import { ShoppingCartOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import Footer from "./../../components/common/Footer";
@@ -14,56 +14,131 @@ import { normalizeImageUrl } from "../../utils/imageUrl";
 const { useBreakpoint } = Grid;
 const HOME_CACHE_TTL = 1000 * 60 * 15;
 
+const SHIMMER_CSS = `
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes skeletonFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.shimmer-block {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e5e7eb 100%);
+  border-radius: 6px;
+}
+.shimmer-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.65) 40%, rgba(255,255,255,0.65) 60%, transparent 100%);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+.skeleton-card {
+  animation: skeletonFadeIn 0.4s ease-out both;
+}
+`;
 
 const getFullImageUrl = (imgPath) => {
   return normalizeImageUrl(imgPath) || "/placeholder-product.jpg";
 };
 
-const ProductSkeleton = ({ className = "", imgClass = "h-40" }) => (
-  <div className={`bg-white rounded-xl border border-gray-100 overflow-hidden animate-pulse flex flex-col ${className}`}>
-    <div className={`w-full bg-gray-200 ${imgClass}`} />
-    <div className="p-3 flex flex-col gap-2 flex-grow">
-      <div className="h-3 bg-gray-200 rounded w-3/4" />
-      <div className="h-3 bg-gray-200 rounded w-1/2" />
-      <div className="mt-auto flex justify-between items-center pt-2">
-        <div className="h-4 bg-gray-200 rounded w-1/3" />
-        <div className="h-6 bg-gray-200 rounded w-8" />
-      </div>
-    </div>
-  </div>
-);
-
-const FlashSaleCardImage = ({ src, alt }) => {
+/* Generic lazy image — shows shimmer until loaded, fades in smoothly */
+const LazyImg = ({ src, alt, className = "", imgClassName = "", hoverScale = false }) => {
   const [loaded, setLoaded] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
-
   return (
-    <div className="h-40 w-full bg-gray-50 relative overflow-hidden">
-      {!loaded && !failed ? (
-        <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100" />
-      ) : null}
-
+    <div className={`relative overflow-hidden bg-gray-100 ${className}`}>
+      {!loaded && !failed && <div className="shimmer-block absolute inset-0" />}
       {failed ? (
-        <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-400 text-xs font-medium">
-          Image unavailable
+        <div className="absolute inset-0 grid place-items-center text-gray-400 text-[11px] font-medium bg-gray-100">
+          No image
         </div>
       ) : (
         <img
           src={src}
           alt={alt}
+          loading="lazy"
           onLoad={() => setLoaded(true)}
-          onError={() => {
-            setFailed(true);
-            setLoaded(false);
-          }}
-          className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ${
+          onError={() => { setFailed(true); setLoaded(false); }}
+          className={`w-full h-full object-cover transition-opacity duration-500 ${
             loaded ? "opacity-100" : "opacity-0"
-          }`}
+          } ${
+            hoverScale ? "group-hover:scale-105 transition-transform duration-500" : ""
+          } ${imgClassName}`}
         />
       )}
     </div>
   );
 };
+
+/* ── Skeleton for horizontal scroll cards (Trending / New Arrivals) ── */
+const HorizontalCardSkeleton = ({ index = 0, accentColor = "#e5e7eb" }) => (
+  <div
+    className="skeleton-card min-w-[170px] w-[170px] bg-white rounded-xl border border-gray-100 overflow-hidden flex flex-col flex-shrink-0"
+    style={{ animationDelay: `${index * 80}ms` }}
+  >
+    <div className="shimmer-block w-full h-40" style={{ borderRadius: 0 }} />
+    <div className="p-3 flex flex-col flex-grow gap-1.5">
+      <div className="shimmer-block h-2 w-12 rounded-full" />
+      <div className="shimmer-block h-2 w-16 rounded-full" />
+      <div className="flex flex-col gap-1 mt-0.5">
+        <div className="shimmer-block h-3 w-full rounded-full" />
+        <div className="shimmer-block h-3 w-3/5 rounded-full" />
+      </div>
+      <div className="mt-auto flex justify-between items-center pt-1.5">
+        <div className="shimmer-block h-4 w-14 rounded-full" />
+        <div className="shimmer-block h-4 w-12 rounded" />
+      </div>
+      <div className="shimmer-block h-7 w-full rounded-lg mt-1" />
+    </div>
+  </div>
+);
+
+/* ── Skeleton for Our Products grid (matches ProductCard) ── */
+const ProductSkeleton = ({ className = "", imgClass = "h-28 md:h-32", index = 0 }) => (
+  <div
+    className={`skeleton-card bg-white rounded-lg border border-gray-100 overflow-hidden flex flex-col ${className}`}
+    style={{ animationDelay: `${index * 60}ms` }}
+  >
+    <div className={`shimmer-block w-full ${imgClass}`} style={{ borderRadius: 0 }} />
+    <div className="p-2 flex flex-col flex-grow gap-1">
+      <div className="shimmer-block h-2 w-10 rounded-full" />
+      <div className="shimmer-block h-2 w-16 rounded-full" />
+      <div className="flex flex-col gap-1 mt-0.5">
+        <div className="shimmer-block h-2.5 w-full rounded-full" />
+        <div className="shimmer-block h-2.5 w-2/3 rounded-full" />
+      </div>
+      <div className="mt-auto flex justify-between items-center pt-1">
+        <div className="shimmer-block h-3.5 w-12 rounded-full" />
+        <div className="flex items-center gap-0.5">
+          <div className="shimmer-block h-2.5 w-2.5 rounded-full" />
+          <div className="shimmer-block h-2.5 w-6 rounded-full" />
+        </div>
+      </div>
+      <div className="flex gap-1 mt-1.5">
+        <div className="shimmer-block h-7 w-8 rounded" />
+        <div className="shimmer-block h-7 flex-1 rounded" />
+      </div>
+    </div>
+  </div>
+);
+
+/* ── Skeleton for Offers carousel ── */
+const OfferSkeleton = ({ index = 0 }) => (
+  <div
+    className="skeleton-card relative min-w-[280px] md:min-w-[350px] h-[160px] md:h-[200px] rounded-xl overflow-hidden flex-shrink-0 border border-gray-100"
+    style={{ animationDelay: `${index * 100}ms` }}
+  >
+    <div className="shimmer-block absolute inset-0" style={{ borderRadius: 0 }} />
+    <div className="absolute inset-0 bg-gradient-to-tr from-black/10 via-transparent to-transparent" />
+    <div className="absolute left-3 bottom-3 flex items-center gap-2">
+      <div className="shimmer-block h-6 w-24 rounded-lg" style={{ background: 'rgba(255,255,255,0.5)' }} />
+    </div>
+  </div>
+);
 
 const fetchJson = async (url, fallbackMessage) => {
   try {
@@ -94,9 +169,12 @@ const readHomeCache = (key) => {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed?.ts || !Array.isArray(parsed?.data)) return null;
+    if (!parsed?.ts || parsed?.data === undefined) return null;
     if (Date.now() - Number(parsed.ts) > HOME_CACHE_TTL) return null;
-    return { ts: Number(parsed.ts), data: parsed.data };
+    // support both array-data and object-data (sections)
+    if (Array.isArray(parsed.data)) return { ts: Number(parsed.ts), data: parsed.data };
+    if (typeof parsed.data === "object") return { ts: Number(parsed.ts), data: parsed.data };
+    return null;
   } catch {
     return null;
   }
@@ -117,13 +195,14 @@ const writeHomeCache = (key, data) => {
 };
 
 const BannerHeroSkeleton = () => (
-  <div className="relative h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px] overflow-hidden bg-slate-200 animate-pulse">
-    <div className="absolute inset-0 bg-gradient-to-r from-slate-300/90 via-slate-200/70 to-slate-300/90" />
-    <div className="absolute inset-x-0 bottom-0 p-4 md:p-6">
-      <div className="h-3 w-28 rounded bg-white/60 mb-3" />
-      <div className="h-8 md:h-10 w-2/3 rounded bg-white/70 mb-3" />
-      <div className="h-3 w-1/2 rounded bg-white/60 mb-4" />
-      <div className="h-8 w-28 rounded-full bg-white/70" />
+  <div className="relative h-[200px] sm:h-[290px] md:h-[370px] lg:h-[460px] xl:h-[520px] overflow-hidden">
+    <div className="shimmer-block absolute inset-0" style={{ borderRadius: 0, background: 'linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%)' }} />
+    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+    <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6 md:p-10 space-y-2.5 md:space-y-3">
+      <div className="h-5 w-20 md:w-24 rounded-full" style={{ background: 'rgba(255,255,255,0.12)' }} />
+      <div className="h-7 sm:h-9 md:h-11 w-3/4 md:w-2/3 rounded-xl" style={{ background: 'rgba(255,255,255,0.10)' }} />
+      <div className="h-3 md:h-4 w-1/2 rounded-full" style={{ background: 'rgba(255,255,255,0.08)' }} />
+      <div className="h-9 md:h-10 w-28 md:w-36 rounded-full mt-1" style={{ background: 'rgba(255,255,255,0.12)' }} />
     </div>
   </div>
 );
@@ -136,8 +215,7 @@ const HomeContent = () => {
   const [selectedOffer, setSelectedOffer] = React.useState(null);
   const bannerCarouselRef = React.useRef(null);
   const cachedStoriesEntry = React.useMemo(() => readHomeCache("home:stories:v1"), []);
-  const cachedFlashEntry = React.useMemo(() => readHomeCache("home:flash:v1"), []);
-  const cachedProductsEntry = React.useMemo(() => readHomeCache("home:products:v1"), []);
+  const cachedHomeSectionsEntry = React.useMemo(() => readHomeCache("home:sections:v2"), []);
   const cachedOffersEntry = React.useMemo(() => readHomeCache("home:offers:v1"), []);
   const cachedBannersEntry = React.useMemo(() => readHomeCache("home:banners:v1"), []);
 
@@ -166,35 +244,31 @@ const HomeContent = () => {
     placeholderData: (prev) => prev,
   });
 
-  const flashQuery = useQuery({
-    queryKey: ["home-flash-products"],
-    queryFn: async () => {
-      const data = await fetchJson(`${API_BASE_URL}/api/products/home?days=7&limit=50`, "Flash sale load failed");
-      if (!data?.success) throw new Error(data?.message || "Flash sale load failed");
-      return Array.isArray(data.flash) ? data.flash : [];
-    },
-    staleTime: 1000 * 60 * 2,
-    gcTime: 1000 * 60 * 30,
-    refetchOnWindowFocus: false,
-    initialData: () => cachedFlashEntry?.data,
-    initialDataUpdatedAt: cachedFlashEntry?.data?.length ? cachedFlashEntry.ts : 0,
-    placeholderData: (prev) => prev,
-  });
-
-  const productsQuery = useQuery({
-    queryKey: ["home-products-preview"],
+  // Single query for flash + trending + ourProducts
+  const homeSectionsQuery = useQuery({
+    queryKey: ["home-sections-v2"],
     queryFn: async () => {
       const data = await fetchJson(
-        `${API_BASE_URL}/api/products?page=1&limit=40&sort=smart&mode=all`,
-        "Products load failed"
+        `${API_BASE_URL}/api/products/home?days=7&limit=30`,
+        "Home sections load failed"
       );
-      return Array.isArray(data.data) ? data.data : [];
+      if (!data?.success) throw new Error(data?.message || "Load failed");
+      return {
+        newArrivals: Array.isArray(data.newArrivals) ? data.newArrivals : [],
+        trending: Array.isArray(data.trending) ? data.trending : [],
+        ourProducts: Array.isArray(data.ourProducts) ? data.ourProducts : [],
+        categorySections: Array.isArray(data.categorySections) ? data.categorySections : [],
+      };
     },
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30,
     refetchOnWindowFocus: false,
-    initialData: () => cachedProductsEntry?.data,
-    initialDataUpdatedAt: cachedProductsEntry?.data?.length ? cachedProductsEntry.ts : 0,
+    initialData: () => {
+      const e = cachedHomeSectionsEntry;
+      if (!e?.data?.trending && !e?.data?.newArrivals) return undefined;
+      return e.data;
+    },
+    initialDataUpdatedAt: cachedHomeSectionsEntry?.ts || 0,
     placeholderData: (prev) => prev,
   });
 
@@ -233,60 +307,57 @@ const HomeContent = () => {
   });
 
   const stories = storiesQuery.data || [];
-  const flashProducts = flashQuery.data || [];
-  const allProducts = productsQuery.data || [];
+  const homeSections = homeSectionsQuery.data || {};
+  const newArrivals = homeSections.newArrivals || [];
+  const trendingProducts = homeSections.trending || [];
+  const ourProducts = homeSections.ourProducts || [];
   const offers = offersQuery.data || [];
   const banners = bannersQuery.data || [];
 
   useEffect(() => {
-    if (stories.length > 0) {
-      writeHomeCache("home:stories:v1", stories);
-    }
+    if (stories.length > 0) writeHomeCache("home:stories:v1", stories);
   }, [stories]);
 
   useEffect(() => {
-    if (flashProducts.length > 0) {
-      writeHomeCache("home:flash:v1", flashProducts);
+    if (newArrivals.length > 0 || trendingProducts.length > 0 || ourProducts.length > 0) {
+      try {
+        sessionStorage.setItem(
+          "home:sections:v2",
+          JSON.stringify({ ts: Date.now(), data: homeSections })
+        );
+      } catch { /* ignore */ }
     }
-  }, [flashProducts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeSections]);
 
   useEffect(() => {
-    if (allProducts.length > 0) {
-      writeHomeCache("home:products:v1", allProducts);
-    }
-  }, [allProducts]);
-
-  useEffect(() => {
-    if (offers.length > 0) {
-      writeHomeCache("home:offers:v1", offers);
-    }
+    if (offers.length > 0) writeHomeCache("home:offers:v1", offers);
   }, [offers]);
 
   useEffect(() => {
-    if (banners.length > 0) {
-      writeHomeCache("home:banners:v1", banners);
-    }
+    if (banners.length > 0) writeHomeCache("home:banners:v1", banners);
   }, [banners]);
 
   const storyLoading = storiesQuery.isPending;
-  const flashLoading = flashQuery.isPending;
-  const productsLoading = productsQuery.isPending;
+  const sectionsLoading = homeSectionsQuery.isPending;
+  const newArrivalsLoading = sectionsLoading;
+  const productsLoading = sectionsLoading;
   const offersLoading = offersQuery.isPending;
   const bannersLoading = bannersQuery.isPending;
   const isBackgroundRefreshing =
     storiesQuery.isFetching ||
-    flashQuery.isFetching ||
-    productsQuery.isFetching ||
+    homeSectionsQuery.isFetching ||
     offersQuery.isFetching ||
     bannersQuery.isFetching;
   const hasAnyHomeContent =
     stories.length > 0 ||
-    flashProducts.length > 0 ||
-    allProducts.length > 0 ||
+    newArrivals.length > 0 ||
+    trendingProducts.length > 0 ||
+    ourProducts.length > 0 ||
     offers.length > 0 ||
     banners.length > 0;
 
-  const errMsg = flashQuery.error?.message || productsQuery.error?.message || "";
+  const errMsg = homeSectionsQuery.error?.message || "";
   const offersErr = offersQuery.error?.message || "";
   const bannersErr = bannersQuery.error?.message || "";
 
@@ -322,9 +393,6 @@ const HomeContent = () => {
       })
     );
     message.success(`${qty} x ${product.name} added to cart`);
-    setTimeout(() => {
-      productsQuery.refetch();
-    }, 250);
   };
 
   const handleProductCardOpen = (product) => {
@@ -343,6 +411,7 @@ const HomeContent = () => {
 
   return (
     <div className="relative pb-12 min-h-screen bg-gradient-to-b from-orange-50 via-rose-50 to-sky-50 overflow-hidden">
+      <style dangerouslySetInnerHTML={{ __html: SHIMMER_CSS }} />
       {isBackgroundRefreshing && hasAnyHomeContent ? (
         <div className="pointer-events-none fixed top-0 left-0 right-0 z-50">
           <div className="h-0.5 w-full bg-gradient-to-r from-cyan-500 via-sky-500 to-emerald-500 animate-pulse" />
@@ -365,33 +434,49 @@ const HomeContent = () => {
       </div>
 
       <div className="px-4 md:px-6">
-        <div className="mb-5 overflow-hidden rounded-2xl shadow-md border border-white/70">
+        <div className="mb-5 overflow-hidden rounded-2xl shadow-lg border border-white/60">
           {bannersLoading ? (
             <BannerHeroSkeleton />
           ) : homeBanners.length > 0 ? (
-            <div className="relative">
+            <div className="relative group/banner">
               <Carousel
                 ref={bannerCarouselRef}
                 autoplay
-                autoplaySpeed={2800}
-                dots
+                autoplaySpeed={3500}
+                dots={{ className: "banner-dots" }}
                 pauseOnHover
                 draggable
                 swipeToSlide
+                fade
               >
                 {homeBanners.map((b) => (
                   <div key={b.id}>
-                    <div className="relative h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px]">
-                      <img src={b.image} alt={b.title} className="h-full w-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/35 to-black/10" />
-                      <div className="absolute inset-0 p-4 md:p-6 flex flex-col justify-end text-white">
-                        <p className="text-[11px] uppercase tracking-[0.16em] font-semibold opacity-90">Trending Now</p>
-                        <h1 className="mt-1 text-xl md:text-3xl font-extrabold leading-tight max-w-2xl">{b.title}</h1>
-                        <p className="text-xs md:text-sm opacity-95 mt-1 line-clamp-2">{b.subtitle}</p>
-                        <div className="mt-3">
+                    <div className="relative h-[200px] sm:h-[290px] md:h-[370px] lg:h-[460px] xl:h-[520px] overflow-hidden">
+                      <LazyImg
+                        src={b.image}
+                        alt={b.title}
+                        className="absolute inset-0 w-full h-full"
+                        imgClassName="group-hover/banner:scale-105 transition-transform duration-[8s] ease-out"
+                      />
+                      {/* layered gradient: subtle at top, strong at bottom */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/10" />
+                      {/* content */}
+                      <div className="absolute inset-0 p-4 sm:p-6 md:p-10 flex flex-col justify-end text-white">
+                        <span className="inline-flex items-center w-fit gap-1.5 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 px-3 py-0.5 text-[10px] md:text-xs font-semibold uppercase tracking-widest mb-2 md:mb-3">
+                          ✦ Featured
+                        </span>
+                        <h1 className="text-lg sm:text-2xl md:text-4xl font-extrabold leading-tight max-w-xl drop-shadow-md">
+                          {b.title}
+                        </h1>
+                        {b.subtitle && (
+                          <p className="text-xs sm:text-sm md:text-base opacity-90 mt-1 md:mt-2 line-clamp-2 max-w-lg font-light">
+                            {b.subtitle}
+                          </p>
+                        )}
+                        <div className="mt-3 md:mt-5">
                           <Link
                             to={b.linkUrl || "/products"}
-                            className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold hover:bg-white/30 transition-colors"
+                            className="inline-flex items-center gap-2 rounded-full bg-white text-gray-900 px-4 md:px-6 py-2 md:py-2.5 text-xs md:text-sm font-bold shadow-lg hover:bg-orange-50 hover:scale-105 transition-all duration-200 active:scale-95"
                           >
                             Shop Now <MoveRight size={16} />
                           </Link>
@@ -402,135 +487,179 @@ const HomeContent = () => {
                 ))}
               </Carousel>
 
+              {/* nav arrows — visible on hover */}
               <button
                 type="button"
                 onClick={() => bannerCarouselRef.current?.prev?.()}
-                className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 h-8 w-8 md:h-10 md:w-10 rounded-full bg-black/35 text-white backdrop-blur flex items-center justify-center hover:bg-black/55 transition-colors"
+                className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 h-8 w-8 md:h-11 md:w-11 rounded-full bg-black/30 text-white backdrop-blur-md border border-white/20 flex items-center justify-center opacity-0 group-hover/banner:opacity-100 hover:bg-black/60 transition-all duration-200 shadow-lg"
                 aria-label="Previous banner"
               >
-                <LeftOutlined />
+                <LeftOutlined className="text-sm" />
               </button>
               <button
                 type="button"
                 onClick={() => bannerCarouselRef.current?.next?.()}
-                className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 h-8 w-8 md:h-10 md:w-10 rounded-full bg-black/35 text-white backdrop-blur flex items-center justify-center hover:bg-black/55 transition-colors"
+                className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 h-8 w-8 md:h-11 md:w-11 rounded-full bg-black/30 text-white backdrop-blur-md border border-white/20 flex items-center justify-center opacity-0 group-hover/banner:opacity-100 hover:bg-black/60 transition-all duration-200 shadow-lg"
                 aria-label="Next banner"
               >
-                <RightOutlined />
+                <RightOutlined className="text-sm" />
               </button>
             </div>
           ) : (
-            <div className="h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px] bg-gradient-to-r from-slate-700 to-slate-500 text-white grid place-items-center">
-              <div className="text-center">
-                <p className="text-xs uppercase tracking-[0.16em] opacity-80">Banner</p>
-                <h3 className="text-xl font-bold mt-1">No active banner yet</h3>
-              
+            <div className="h-[200px] sm:h-[290px] md:h-[370px] lg:h-[460px] bg-gradient-to-br from-slate-800 via-slate-700 to-slate-600 text-white grid place-items-center">
+              <div className="text-center space-y-2">
+                <p className="text-xs uppercase tracking-[0.2em] opacity-60 font-medium">Welcome</p>
+                <h3 className="text-2xl font-extrabold">Discover Products</h3>
+                <Link to="/products" className="inline-flex items-center gap-1.5 mt-2 bg-white/15 hover:bg-white/25 border border-white/20 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors">
+                  Browse All <MoveRight size={15} />
+                </Link>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex justify-between items-end mb-5">
-          <div>
-            <h2 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-rose-600 to-orange-500 tracking-tight">Flash Sale</h2>
-            <p className="text-xs text-gray-600 mt-1">High discount products</p>
-          </div>
+      </div>
 
-          <Link
-            to="/flash-sales"
-            className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
-          >
+      {/* ── Trending / Best Selling ── */}
+      <div className="px-4 md:px-6 mt-8">
+        <div className="flex justify-between items-end mb-4">
+          <div>
+            <h2 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600 tracking-tight flex items-center gap-2">
+              🔥 Trending Now
+            </h2>
+            <p className="text-xs text-gray-600 mt-1">Best selling products this week</p>
+          </div>
+          <Link to="/products?sort=trending" className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors inline-flex items-center gap-1">
             View All <MoveRight size={18} />
           </Link>
         </div>
 
-        {flashLoading ? (
+        {newArrivalsLoading ? (
           <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
             {Array.from({ length: 6 }).map((_, i) => (
-              <ProductSkeleton key={i} className="min-w-[180px] w-[180px]" imgClass="h-40" />
+              <HorizontalCardSkeleton key={i} index={i} accentColor="#fef3c7" />
             ))}
           </div>
-        ) : (
+        ) : trendingProducts.length === 0 ? null : (
           <div className="flex overflow-x-auto gap-4 pb-6 scrollbar-hide snap-x">
-            {flashProducts.length === 0 ? (
-              <p className="text-gray-500">No flash sale products yet</p>
-            ) : (
-              flashProducts.map((product) => (
-                <div
-                  key={product.id}
-                  onClick={() => navigate(`/products/${product.id}`)}
-                  className="min-w-[180px] w-[180px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-rose-100 overflow-hidden group cursor-pointer"
-                >
-                  <div className="relative">
-                    <FlashSaleCardImage src={getFullImageUrl(product.images?.[0])} alt={product.name} />
-                    <span className="absolute top-2 left-2 bg-gradient-to-r from-rose-500 to-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
-                      FLASH
+            {trendingProducts.map((product, idx) => (
+              <div
+                key={product.id}
+                onClick={() => navigate(`/products/${product.id}`)}
+                className="min-w-[170px] w-[170px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-amber-100 overflow-hidden group cursor-pointer relative"
+              >
+                {/* Rank badge */}
+                {idx < 3 && (
+                  <div className="absolute top-2 left-2 z-10 w-6 h-6 rounded-full text-white text-[11px] font-black flex items-center justify-center shadow"
+                    style={{ background: idx === 0 ? "#f59e0b" : idx === 1 ? "#94a3b8" : "#c2763a" }}>
+                    {idx + 1}
+                  </div>
+                )}
+                <LazyImg
+                  src={getFullImageUrl(product.images?.[0])}
+                  alt={product.name}
+                  className="h-40 w-full"
+                  hoverScale
+                />
+                <div className="p-3 flex flex-col flex-grow">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">{product.category || "Item"}</p>
+                  <p className="text-[10px] text-sky-700 font-medium mb-1 truncate">
+                    {product.merchant?.name ? `Seller: ${product.merchant.name}` : ""}
+                  </p>
+                  <h3 className="text-sm font-semibold text-gray-800 line-clamp-2 leading-tight mb-1 h-10" title={product.name}>
+                    {product.name}
+                  </h3>
+                  <div className="mt-auto flex items-center justify-between gap-1">
+                    <span className="text-base font-bold text-gray-900">৳{Number(product.price || 0).toLocaleString()}</span>
+                    <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">
+                      {Number(product.trending?.soldQty || 0) > 0 ? `${product.trending.soldQty} sold` : "Trending"}
                     </span>
                   </div>
-
-                  <div className="p-3 flex flex-col flex-grow">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
-                      {product.category || "Item"}
-                    </p>
-
-                    <p
-                      className="text-[10px] text-sky-700 font-medium mb-1 truncate"
-                      title={product.merchant?.name || (product.merchantId ? `Seller #${product.merchantId}` : "")}
+                  <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      block
+                      icon={<ShoppingCartOutlined />}
+                      onClick={() => handleAddToCartClick(product, 1)}
+                      className="!bg-gradient-to-r !from-amber-500 !to-orange-500 border-none shadow-none"
                     >
-                      {product.merchant?.name
-                        ? `Seller: ${product.merchant.name}`
-                        : product.merchantId
-                          ? `Seller #${product.merchantId}`
-                          : ""}
-                    </p>
-
-                    <h3
-                      className="text-sm font-semibold text-gray-800 line-clamp-2 leading-tight mb-1 h-10"
-                      title={product.name}
-                    >
-                      {product.name}
-                    </h3>
-
-                    <div className="flex items-center mb-2">
-                      <Rate
-                        disabled
-                        allowHalf
-                        value={Number(product.rating || product.averageRating || 0)}
-                        style={{ fontSize: 10 }}
-                      />
-                      <span className="text-[10px] text-gray-400 ml-1">({product.totalReviews || 0})</span>
-                    </div>
-
-                    <div className="mt-auto">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-lg font-bold text-gray-900">${product.price}</p>
-                        {product.oldPrice ? (
-                          <p className="text-xs text-gray-400 line-through">${product.oldPrice}</p>
-                        ) : null}
-                      </div>
-
-                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <InputNumber
-                          min={1}
-                          max={10}
-                          defaultValue={1}
-                          size="small"
-                          className="w-14"
-                          controls={false}
-                        />
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<ShoppingCartOutlined />}
-                          onClick={() => handleAddToCartClick(product, 1)}
-                          className="flex-grow !bg-gradient-to-r !from-rose-500 !to-orange-500 hover:!from-rose-600 hover:!to-orange-600 border-none shadow-none rounded-md flex justify-center items-center"
-                        />
-                      </div>
-                    </div>
+                      Add
+                    </Button>
                   </div>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── New Arrivals ── */}
+      <div className="px-4 md:px-6 mt-8">
+        <div className="flex justify-between items-end mb-4">
+          <div>
+            <h2 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-teal-600 tracking-tight flex items-center gap-2">
+              ✨ New Arrivals
+            </h2>
+            <p className="text-xs text-gray-600 mt-1">Fresh products from our sellers</p>
+          </div>
+          <Link to="/products?sort=newest" className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors inline-flex items-center gap-1">
+            View All <MoveRight size={18} />
+          </Link>
+        </div>
+
+        {newArrivalsLoading ? (
+          <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <HorizontalCardSkeleton key={i} index={i} accentColor="#d1fae5" />
+            ))}
+          </div>
+        ) : newArrivals.length === 0 ? null : (
+          <div className="flex overflow-x-auto gap-4 pb-6 scrollbar-hide snap-x">
+            {newArrivals.map((product) => (
+              <div
+                key={product.id}
+                onClick={() => navigate(`/products/${product.id}`)}
+                className="min-w-[170px] w-[170px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-emerald-100 overflow-hidden group cursor-pointer relative"
+              >
+                <span className="absolute top-2 left-2 z-10 bg-emerald-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow">
+                  NEW
+                </span>
+                <LazyImg
+                  src={getFullImageUrl(product.images?.[0])}
+                  alt={product.name}
+                  className="h-40 w-full"
+                  hoverScale
+                />
+                <div className="p-3 flex flex-col flex-grow">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">{product.category || "Item"}</p>
+                  <p className="text-[10px] text-sky-700 font-medium mb-1 truncate">
+                    {product.merchant?.name ? `Seller: ${product.merchant.name}` : ""}
+                  </p>
+                  <h3 className="text-sm font-semibold text-gray-800 line-clamp-2 leading-tight mb-1 h-10" title={product.name}>
+                    {product.name}
+                  </h3>
+                  <div className="mt-auto flex items-center justify-between gap-1">
+                    <span className="text-base font-bold text-gray-900">৳{Number(product.price || 0).toLocaleString()}</span>
+                    {product.averageRating > 0 ? (
+                      <span className="text-[10px] text-amber-500 font-semibold">★ {Number(product.averageRating).toFixed(1)}</span>
+                    ) : null}
+                  </div>
+                  <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      block
+                      icon={<ShoppingCartOutlined />}
+                      onClick={() => handleAddToCartClick(product, 1)}
+                      className="!bg-gradient-to-r !from-emerald-500 !to-teal-500 border-none shadow-none"
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -550,10 +679,7 @@ const HomeContent = () => {
         {offersLoading ? (
           <div className="flex overflow-x-auto gap-4 pb-2 scrollbar-hide">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="min-w-[280px] md:min-w-[350px] h-[160px] md:h-[200px] rounded-xl bg-gray-200 animate-pulse border border-gray-100"
-              />
+              <OfferSkeleton key={i} index={i} />
             ))}
           </div>
         ) : (
@@ -568,10 +694,11 @@ const HomeContent = () => {
                   className="min-w-[280px] md:min-w-[350px] h-[160px] md:h-[200px] rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 snap-center relative group border border-cyan-100"
                   title={o.title}
                 >
-                  <img
+                  <LazyImg
                     src={getFullImageUrl(o.imageUrl)}
                     alt={o.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    className="absolute inset-0 w-full h-full"
+                    hoverScale
                   />
                   <div className="absolute inset-0 bg-gradient-to-tr from-black/35 via-transparent to-transparent group-hover:from-black/20 transition-colors" />
                   <div className="absolute left-3 bottom-3 bg-white/85 text-gray-900 px-3 py-1 rounded-lg text-xs font-semibold">
@@ -586,49 +713,82 @@ const HomeContent = () => {
 
       <div className="px-4 md:px-6">
         <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur p-3 md:p-4 shadow-sm">
-        <div className="flex justify-between items-end mb-4">
-          <span className="text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-emerald-500">Our Products</span>
-                <Link
-                  to="/products"
-                  className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors inline-flex items-center gap-1"
-                >
-                  View All <MoveRight size={18} />
-                </Link>
-        </div>
-
-        {productsLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <ProductSkeleton key={i} imgClass="h-28 md:h-32" />
-            ))}
+          <div className="flex justify-between items-end mb-4">
+            <div>
+              <span className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-emerald-500">
+                🛍️ Our Products
+              </span>
+              <p className="text-xs text-gray-500 mt-0.5">Handpicked products from various categories</p>
+            </div>
+            <Link
+              to="/products"
+              className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors inline-flex items-center gap-1"
+            >
+              View All <MoveRight size={18} />
+            </Link>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
-            {allProducts.length === 0 ? (
-              <p className="col-span-full text-center text-gray-500 py-8">No products available yet</p>
-            ) : (
-              allProducts.map((p) => (
-                <ProductCard
-                  key={p.id}
-                  product={{
-                    ...p,
-                    images: (p.images || []).map(getFullImageUrl),
-                    price: parseFloat(p.price),
-                    oldPrice: p.oldPrice ? parseFloat(p.oldPrice) : undefined,
-                  }}
-                  onAddToCart={(_, qty) => handleAddToCartClick(p, qty)}
-                  onProductClick={() => handleProductCardOpen(p)}
-                />
-              ))
-            )}
-          </div>
-        )}
 
-        <div className="flex justify-center">
-          <Link to="/products" className="text-sm font-medium  text-blue-600 hover:text-blue-800 transition-colors  gap-1">
-            View All Products
-          </Link>
-        </div>
+          {productsLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <ProductSkeleton key={i} index={i} imgClass="h-28 md:h-32" />
+              ))}
+            </div>
+          ) : ourProducts.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No products available yet</p>
+          ) : (
+            (() => {
+              // group by category for display
+              const grouped = {};
+              for (const p of ourProducts) {
+                const cat = p.category || "General";
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(p);
+              }
+              return (
+                <div className="space-y-8">
+                  {Object.entries(grouped).map(([cat, catProducts]) => (
+                    <div key={cat}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1 h-5 rounded-full bg-gradient-to-b from-sky-500 to-emerald-500 inline-block" />
+                          <span className="text-base font-bold text-gray-800 capitalize">{cat}</span>
+                          <span className="text-xs text-gray-400">({catProducts.length})</span>
+                        </div>
+                        <Link
+                          to={`/${cat.toLowerCase().replace(/\s+/g, "-")}`}
+                          className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5"
+                        >
+                          See all <MoveRight size={14} />
+                        </Link>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
+                        {catProducts.map((p) => (
+                          <ProductCard
+                            key={p.id}
+                            product={{
+                              ...p,
+                              images: (p.images || []).map(getFullImageUrl),
+                              price: parseFloat(p.price),
+                              oldPrice: p.oldPrice ? parseFloat(p.oldPrice) : undefined,
+                            }}
+                            onAddToCart={(_, qty) => handleAddToCartClick(p, qty)}
+                            onProductClick={() => handleProductCardOpen(p)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
+          )}
+
+          <div className="flex justify-center mt-6">
+            <Link to="/products" className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors gap-1">
+              View All Products
+            </Link>
+          </div>
         </div>
       </div>
 

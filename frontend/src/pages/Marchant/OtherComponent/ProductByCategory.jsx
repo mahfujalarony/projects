@@ -26,7 +26,7 @@ const Product = () => {
         setProducts(res.data || []);
         setLoading(false);
       } catch (error) {
-        console.error(error);
+
         if (isMounted) {
           setMessage({ type: "error", text: "Failed to load products." });
         }
@@ -62,7 +62,7 @@ const Product = () => {
         text: "Product successfully added to your store.",
       });
     } catch (error) {
-      console.error(error);
+
       setMessage({
         type: "error",
         text: "This product is already assigned or something went wrong.",

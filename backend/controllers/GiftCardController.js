@@ -122,7 +122,6 @@ const createGiftCard = async (req, res) => {
     try {
       await t.rollback();
     } catch {}
-    console.error("Create gift card error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -201,7 +200,6 @@ const claimGiftCard = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
-    console.error('Claim gift card error:', error);
     return res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };

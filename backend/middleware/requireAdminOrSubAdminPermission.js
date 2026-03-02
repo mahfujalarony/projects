@@ -32,7 +32,7 @@ function requireAdminOrSubAdminPermission(permKey) {
 
       return next();
     } catch (err) {
-      console.error("requireAdminOrSubAdminPermission error:", err);
+
       return res.status(500).json({ success: false, message: "Server error" });
     }
   };

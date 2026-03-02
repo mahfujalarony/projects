@@ -104,7 +104,7 @@ const AdminProducts = () => {
         if (!res.ok) throw new Error(data?.message || "Failed to load categories");
         if (!ignore) setCategories(Array.isArray(data) ? data : []);
       } catch (e) {
-        console.error(e);
+
         if (!ignore) {
           setCategories([]);
           message.error(e.message || "Category load failed");
@@ -165,7 +165,7 @@ const AdminProducts = () => {
       setProducts(list);
       setTotal(Number.isFinite(t) ? t : 0);
     } catch (e) {
-      console.error(e);
+
       setProducts([]);
       setTotal(0);
       message.error(e.message || "Product load failed");
@@ -200,7 +200,7 @@ const AdminProducts = () => {
       setPage((p) => Math.min(p, lastPage));
       fetchProducts();
     } catch (e) {
-      console.error(e);
+
       message.error(e.message || "Delete failed");
     }
   };
@@ -219,7 +219,7 @@ const AdminProducts = () => {
         setViewData(json.data);
       }
     } catch (e) {
-      console.error(e);
+
       message.error("Failed to load details");
     } finally {
       setViewLoading(false);
@@ -327,7 +327,7 @@ const AdminProducts = () => {
       setEditOpen(false);
       fetchProducts();
     } catch (e) {
-      console.error(e);
+
       message.error(e.message || "Update failed");
     } finally {
       setEditLoading(false);

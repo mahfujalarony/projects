@@ -59,7 +59,7 @@ async function canSubAdminManageSupport(userId, token) {
     supportPermCache.set(key, { allowed, expiresAt: now + 30_000 });
     return allowed;
   } catch (e) {
-    console.error(`[Chat] Failed subadmin support check for ${userId}:`, e.message);
+
     supportPermCache.set(key, { allowed: false, expiresAt: now + 5_000 });
     return false;
   }
@@ -290,6 +290,6 @@ async function boot() {
 }
 
 boot().catch((e) => {
-  console.error(e);
+
   process.exit(1);
 });

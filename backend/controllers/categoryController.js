@@ -82,7 +82,6 @@ exports.createCategory = async (req, res) => {
 
     return res.status(201).json(created);
   } catch (err) {
-    console.error("createCategory error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -147,7 +146,6 @@ exports.getCategories = async (req, res) => {
 
     return res.json(out);
   } catch (err) {
-    console.error("getCategories error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -173,7 +171,6 @@ exports.updateCategory = async (req, res) => {
     await cat.save();
     return res.json(cat);
   } catch (err) {
-    console.error("updateCategory error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -199,13 +196,12 @@ exports.deleteCategory = async (req, res) => {
       try {
         await deleteUploadFileIfSafe(p);
       } catch (e) {
-        console.error("deleteCategory image cleanup error:", e);
+
       }
     }
 
     return res.json({ message: "Category deleted" });
   } catch (err) {
-    console.error("deleteCategory error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };

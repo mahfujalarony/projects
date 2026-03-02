@@ -102,7 +102,7 @@ export default function UserList() {
         message.error(res.data?.message || "Failed to load users");
       }
     } catch (e) {
-      console.error(e);
+
       message.error(e.response?.data?.message || "Failed to load users");
     } finally {
       setLoading(false);
@@ -159,7 +159,7 @@ export default function UserList() {
       }
     } catch (e) {
       if (e?.errorFields) return; // antd validation
-      console.error(e);
+
       message.error(e.response?.data?.message || "Update failed");
     } finally {
       setSaving(false);
@@ -259,7 +259,7 @@ export default function UserList() {
       message.success("Topup block removed");
       await fetchUsers();
     } catch (e) {
-      console.error(e);
+
       message.error(e.response?.data?.message || "Failed to unblock topup");
     }
   }

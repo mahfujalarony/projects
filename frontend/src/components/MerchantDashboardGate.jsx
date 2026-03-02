@@ -97,8 +97,6 @@ const MerchantDashboardGate = () => {
 
         return m;
       } catch (e) {
-        console.error(e);
-        // initial load fail হলে UI তে error দেখাই
         if (!loadedOnceRef.current) setServerError(e.message || "Server error");
         return null;
       } finally {

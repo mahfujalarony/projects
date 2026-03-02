@@ -416,7 +416,7 @@ export default function MerchantOrders() {
           </div>
         }
         placement="bottom"
-        height="72vh"
+        size={300}
         open={detailsOpen}
         onClose={() => setDetailsOpen(false)}
         styles={{ body: { padding: "16px" } }}

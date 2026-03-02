@@ -10,6 +10,7 @@ import {
 } from "../../redux/chatSlice";
 import { connectChatSocket, disconnectChatSocket, getChatSocket } from "../../realtime/chatSocket";
 import { CHAT_BASE_URL } from "../../config/env";
+import { message } from "antd";
 
 const CHAT_API_BASE = CHAT_BASE_URL;
 
@@ -34,7 +35,7 @@ const ChatSocketBridge = () => {
       }, {});
       dispatch(setConversationUnreadMap(unreadMap));
     } catch (error) {
-      console.error("Failed to refresh unread:", error);
+      message.error(error.response?.data?.message || error.message || "Failed to load conversations");
     }
   }, [dispatch, token]);
 

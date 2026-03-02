@@ -39,7 +39,7 @@ store.subscribe(() => {
       JSON.stringify(state.cart.items)
     );
   } catch (err) {
-    console.error("Failed to save cart", err);
+
   }
 });
 

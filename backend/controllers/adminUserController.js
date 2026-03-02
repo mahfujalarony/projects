@@ -69,7 +69,6 @@ exports.adminGetUsers = async (req, res) => {
       users: rows,
     });
   } catch (e) {
-    console.error("adminGetUsers error:", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -99,7 +98,6 @@ exports.adminGetUserById = async (req, res) => {
 
     return res.json({ success: true, user });
   } catch (e) {
-    console.error("adminGetUserById error:", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -182,7 +180,6 @@ exports.adminUpdateUser = async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("adminUpdateUser error:", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -199,7 +196,6 @@ exports.getSubAdminPermissions = async (req, res) => {
 
     return res.json({ success: true, permissions: perms.map((p) => p.permKey) });
   } catch (e) {
-    console.error("getSubAdminPermissions error:", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -227,7 +223,6 @@ exports.setSubAdminPermissions = async (req, res) => {
 
     return res.json({ success: true, message: "Permissions updated", permissions: cleaned });
   } catch (e) {
-    console.error("setSubAdminPermissions error:", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -245,7 +240,6 @@ exports.getSubAdminOwnPermissions = async (req, res) => {
 
     return res.json({ success: true, permissions: perms.map((p) => p.permKey) });
   } catch (e) {
-    console.error("getSubAdminOwnPermissions error:", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

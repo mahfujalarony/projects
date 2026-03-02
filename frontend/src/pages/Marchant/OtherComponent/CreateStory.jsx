@@ -84,7 +84,7 @@ export default function CreateStory() {
         setMyStories([]);
       }
     } catch (e) {
-      console.error(e);
+
       setMyStories([]);
       message.error(e.response?.data?.message || "Failed to load stories");
     } finally {
@@ -100,7 +100,7 @@ export default function CreateStory() {
       const list = Array.isArray(res?.data?.data) ? res.data.data : [];
       setStoreProducts(list);
     } catch (e) {
-      console.error(e);
+
       setStoreProducts([]);
     } finally {
       setStoreLoading(false);
@@ -122,7 +122,7 @@ export default function CreateStory() {
       const bal = Number(balanceRes?.data?.data?.balance || 0);
       setMerchantBalance(Number.isFinite(bal) ? bal : 0);
     } catch (e) {
-      console.error("fetchStoryConfig error:", e);
+
     }
   };
 
@@ -192,7 +192,7 @@ export default function CreateStory() {
         message.error(res.data?.message || "Failed");
       }
     } catch (e) {
-      console.error(e);
+
       message.error(e.response?.data?.message || e.message || "Failed");
     } finally {
       setSubmitting(false);
@@ -223,7 +223,7 @@ export default function CreateStory() {
         message.error(res.data?.message || "Failed");
       }
     } catch (e) {
-      console.error(e);
+
       message.error(e.response?.data?.message || "Failed");
     }
   };
@@ -238,7 +238,7 @@ export default function CreateStory() {
         message.error(res.data?.message || "Failed");
       }
     } catch (e) {
-      console.error(e);
+
       message.error(e.response?.data?.message || "Failed");
     }
   };

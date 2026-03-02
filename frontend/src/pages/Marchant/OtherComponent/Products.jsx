@@ -12,7 +12,7 @@ const API_PICK = `${API_BASE_URL}/api/merchant/store/pick`;
 
 const { useBreakpoint } = Grid;
 
-const LIMIT = 12;
+const LIMIT = 20;
 const CATEGORY_CACHE_KEY = "merchant:categories:v1";
 const CATEGORY_CACHE_TTL = 1000 * 60 * 10;
 
@@ -92,6 +92,7 @@ const MerchantPickProducts = () => {
   const [balLoading, setBalLoading] = useState(false);
 
   const [categories, setCategories] = useState([]);
+  const categoriesRef = useRef([]);
   const [catLoading, setCatLoading] = useState(false);
 
   const [catSlug, setCatSlug] = useState(null);
@@ -128,7 +129,6 @@ const MerchantPickProducts = () => {
       if (!res.ok) throw new Error(json?.message || "Balance load failed");
       setBalance(Number(json?.data?.balance || 0));
     } catch (e) {
-      console.error(e);
       message.error(e.message || "Balance load failed");
     } finally {
       setBalLoading(false);
@@ -139,8 +139,10 @@ const MerchantPickProducts = () => {
     const cached = readCategoryCache();
     setCatLoading(true);
     try {
+      // also prime ref from cache so loadProducts can use it immediately
       if (cached?.length) {
         setCategories(cached);
+        categoriesRef.current = cached;
         setCatLoading(false);
       }
       const res = await fetch(API_CATEGORIES);
@@ -148,9 +150,10 @@ const MerchantPickProducts = () => {
       if (!res.ok) throw new Error(json?.message || "Category load failed");
       const next = Array.isArray(json) ? json : [];
       setCategories(next);
+      categoriesRef.current = next;
       writeCategoryCache(next);
     } catch (e) {
-      console.error(e);
+
       message.error(e.message || "Category load failed");
       if (!cached?.length) setCategories([]);
     } finally {
@@ -158,9 +161,9 @@ const MerchantPickProducts = () => {
     }
   };
 
-  const loadProducts = async () => {
+  const loadProducts = async ({ silent = false } = {}) => {
     const requestId = ++productsReqRef.current;
-    setProdLoading(true);
+    if (!silent) setProdLoading(true);
     try {
       const token = getToken();
       if (!token) throw new Error("Please login first");
@@ -170,7 +173,8 @@ const MerchantPickProducts = () => {
       params.set("limit", String(LIMIT));
       if (catSlug) {
         params.set("category", catSlug);
-        const selectedCategory = (categories || []).find((c) => String(c?.slug || "").trim() === String(catSlug).trim());
+        const cats = categoriesRef.current;
+        const selectedCategory = cats.find((c) => String(c?.slug || "").trim() === String(catSlug).trim());
         const categoryDescendants = collectDescendantSlugs(selectedCategory);
         if (categoryDescendants.length) {
           params.set("categoryScopes", categoryDescendants.join(","));
@@ -178,7 +182,8 @@ const MerchantPickProducts = () => {
       }
       if (subSlug) {
         params.set("subCategory", subSlug);
-        const selectedCategory = (categories || []).find((c) => String(c?.slug || "").trim() === String(catSlug).trim());
+        const cats = categoriesRef.current;
+        const selectedCategory = cats.find((c) => String(c?.slug || "").trim() === String(catSlug).trim());
         const selectedSubNode = findNodeBySlug(getNodeChildren(selectedCategory), subSlug);
         const subDescendants = collectDescendantSlugs(selectedSubNode);
         if (subDescendants.length) {
@@ -199,7 +204,7 @@ const MerchantPickProducts = () => {
       setTotal(Number(json?.meta?.total || 0));
     } catch (e) {
       if (requestId !== productsReqRef.current) return;
-      console.error(e);
+
       message.error(e.message || "Product load failed");
       setProducts([]);
       setTotal(0);
@@ -227,7 +232,7 @@ const MerchantPickProducts = () => {
   useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, catSlug, subSlug, appliedSearch, categories]);
+  }, [page, catSlug, subSlug, appliedSearch]);
 
   const currentCat = useMemo(
     () => (categories || []).find((c) => c?.slug === catSlug) || null,
@@ -303,14 +308,13 @@ const MerchantPickProducts = () => {
 
           message.success("Added to your store");
 
-          // ✅ refresh balance + products
+          // ✅ refresh balance + products (silent = no spinner flicker)
           await loadBalance();
-          await loadProducts();
+          await loadProducts({ silent: true });
 
           // reset qty for that product
           setQtyMap((m) => ({ ...m, [pid]: 1 }));
         } catch (e) {
-          console.error(e);
           message.error(e.message || "Pick failed");
         } finally {
           setPickingId(null);
@@ -318,6 +322,7 @@ const MerchantPickProducts = () => {
       },
     });
   };
+
 
   const onSearch = () => {
     setPage(1);
@@ -340,7 +345,7 @@ const MerchantPickProducts = () => {
         message.error("Failed to load details");
       }
     } catch (e) {
-      console.error(e);
+
     } finally {
       setViewLoading(false);
     }

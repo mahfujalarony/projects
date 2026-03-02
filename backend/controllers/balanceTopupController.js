@@ -29,7 +29,6 @@ exports.clientListMobileBankings = async (req, res) => {
     });
     res.json({ success: true, data: rows });
   } catch (err) {
-    console.error("clientListMobileBankings error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -80,7 +79,6 @@ exports.clientListWalletsByProvider = async (req, res) => {
 
     res.json({ success: true, data: { provider, wallets } });
   } catch (err) {
-    console.error("clientListWalletsByProvider error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -184,7 +182,6 @@ exports.createTopupRequest = async (req, res) => {
 
     res.json({ success: true, message: "Topup request submitted", data: row });
   } catch (err) {
-    console.error("createTopupRequest error:", err);
     if (err?.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({
         success: false,
@@ -245,7 +242,6 @@ exports.getMyPendingTopups = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getMyPendingTopups error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

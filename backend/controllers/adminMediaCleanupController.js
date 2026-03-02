@@ -267,7 +267,6 @@ exports.getOrphanImages = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("getOrphanImages error:", err);
     return res.status(500).json({ success: false, message: "Failed to scan orphan images" });
   }
 };
@@ -317,7 +316,6 @@ exports.deleteOrphanImages = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("deleteOrphanImages error:", err);
     return res.status(500).json({ success: false, message: "Failed to delete orphan images" });
   }
 };

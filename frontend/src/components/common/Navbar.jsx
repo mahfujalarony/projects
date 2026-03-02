@@ -25,7 +25,7 @@ const clampSiteName = (value, fallback = "") => {
 
 
 const Navbar = ({ collapsed, setCollapsed, openDrawer, isMobile, categories = [], catLoading = false }) => {
-  const [notificationCount] = useState(12);
+  const [notificationCount] = useState(0);
   const [scrolled, setScrolled] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [showMobileSearch, setShowMobileSearch] = useState(false);
@@ -225,6 +225,7 @@ const Navbar = ({ collapsed, setCollapsed, openDrawer, isMobile, categories = []
             searchValue={searchValue}
             setSearchValue={handleInputChange}
             handleSearch={handleSearch}
+            allSuggestions={searchSuggestions}
             suggestions={filteredSuggestions}
             showSuggestions={showDesktopSuggestions}
             setShowSuggestions={setShowDesktopSuggestions}
@@ -298,7 +299,7 @@ const Navbar = ({ collapsed, setCollapsed, openDrawer, isMobile, categories = []
                 value={searchValue}
                 onChange={handleInputChange}
                 onFocus={() => setShowMobileSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowMobileSuggestions(false), 120)}
+                onBlur={() => setTimeout(() => setShowMobileSuggestions(false), 150)}
                 onPressEnter={() => handleSearch(searchValue)}
                 suffix={
                   <SearchOutlined
@@ -323,18 +324,33 @@ const Navbar = ({ collapsed, setCollapsed, openDrawer, isMobile, categories = []
               </button>
             </div>
             {showMobileSuggestions && filteredSuggestions.length > 0 ? (
-              <div className="absolute left-2 right-2 top-full z-[80] mt-2 rounded-lg border border-gray-200 bg-white shadow-lg max-h-56 overflow-auto">
-                {filteredSuggestions.map((item) => (
-                  <button
-                    key={`mobile-suggestion-${item}`}
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-orange-50"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => selectSuggestion(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
+              <div className="absolute left-2 right-2 top-full z-[80] mt-2 rounded-xl border border-gray-200 bg-white shadow-xl max-h-64 overflow-auto">
+                {!searchValue.trim() && (
+                  <p className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Popular Searches</p>
+                )}
+                {filteredSuggestions.map((item) => {
+                  const q = searchValue.trim().toLowerCase();
+                  const lower = item.toLowerCase();
+                  const idx = q ? lower.indexOf(q) : -1;
+                  return (
+                    <button
+                      key={`mobile-suggestion-${item}`}
+                      type="button"
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-orange-50 transition-colors"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectSuggestion(item)}
+                    >
+                      <SearchOutlined className="shrink-0 text-gray-400 text-xs" />
+                      {idx >= 0 ? (
+                        <span>
+                          {item.slice(0, idx)}
+                          <strong className="text-orange-600">{item.slice(idx, idx + q.length)}</strong>
+                          {item.slice(idx + q.length)}
+                        </span>
+                      ) : item}
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -442,49 +458,85 @@ const SearchBar = ({
   searchValue,
   setSearchValue,
   handleSearch,
+  allSuggestions = [],
   suggestions = [],
   showSuggestions = false,
   setShowSuggestions = () => {},
   onSelectSuggestion = () => {},
   className = "",
-}) => (
-  <div className={`flex-1 max-w-3xl ${className}`}>
-    <div className="relative">
-      <Input
-        size="large"
-        placeholder="Search for products..."
-        value={searchValue}
-        onChange={setSearchValue}
-        onFocus={() => setShowSuggestions(true)}
-        onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
-        onPressEnter={() => handleSearch(searchValue)}
-        suffix={
-          <SearchOutlined
-            className="text-xl text-gray-500 cursor-pointer"
-            onClick={() => handleSearch(searchValue)}
-          />
-        }
-        className="rounded-lg bg-gray-50 border-gray-200 shadow-sm"
-        style={{ padding: "8px 20px" }}
-      />
-      {showSuggestions && suggestions.length > 0 ? (
-        <div className="absolute left-0 right-0 mt-2 rounded-lg border border-gray-200 bg-white shadow-lg max-h-64 overflow-auto z-20">
-          {suggestions.map((item) => (
-            <button
-              key={`desktop-suggestion-${item}`}
-              type="button"
-              className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-orange-50"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onSelectSuggestion(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      ) : null}
+}) => {
+  // On focus with empty input, show all admin keywords as chips
+  // On typing, show filtered matches (passed as `suggestions`)
+  const displayList = searchValue.trim() ? suggestions : allSuggestions.slice(0, 10);
+  const query = searchValue.trim().toLowerCase();
+
+  return (
+    <div className={`flex-1 max-w-3xl ${className}`}>
+      <div className="relative">
+        <Input
+          size="large"
+          placeholder="Search for products..."
+          value={searchValue}
+          onChange={setSearchValue}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          onPressEnter={() => handleSearch(searchValue)}
+          suffix={
+            <SearchOutlined
+              className="text-xl text-gray-500 cursor-pointer hover:text-orange-500 transition-colors"
+              onClick={() => handleSearch(searchValue)}
+            />
+          }
+          className="rounded-lg bg-gray-50 border-gray-200 shadow-sm"
+          style={{ padding: "8px 20px" }}
+        />
+
+        {showSuggestions && displayList.length > 0 ? (
+          <div
+            className="absolute left-0 right-0 mt-1.5 rounded-xl border border-gray-200 bg-white shadow-xl z-[60] overflow-hidden"
+            style={{ animation: "suggestionFadeIn .15s ease" }}
+          >
+            <style>{`
+              @keyframes suggestionFadeIn {
+                from { opacity: 0; transform: translateY(-6px); }
+                to   { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
+            {!query && (
+              <div className="px-3 pt-2.5 pb-1 flex items-center gap-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Popular Searches</span>
+              </div>
+            )}
+            <div className="max-h-64 overflow-auto">
+              {displayList.map((item) => {
+                const lower = item.toLowerCase();
+                const idx = query ? lower.indexOf(query) : -1;
+                return (
+                  <button
+                    key={`desktop-suggestion-${item}`}
+                    type="button"
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-orange-50 transition-colors border-b border-gray-50 last:border-b-0"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onSelectSuggestion(item)}
+                  >
+                    <SearchOutlined className="shrink-0 text-gray-400 text-xs" />
+                    {idx >= 0 ? (
+                      <span>
+                        {item.slice(0, idx)}
+                        <strong className="text-orange-600">{item.slice(idx, idx + query.length)}</strong>
+                        {item.slice(idx + query.length)}
+                      </span>
+                    ) : item}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const RightSection = ({ notificationCount, user, totalUnreadCount, isMobile }) => {
   const navigate = useNavigate();

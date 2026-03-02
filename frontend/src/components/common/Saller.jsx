@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Spin, Alert, message, Avatar, Rate, Typography, Empty } from "antd";
-import { UserOutlined, ShopOutlined, EnvironmentOutlined, CalendarOutlined } from "@ant-design/icons";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { Spin, Alert, message, Avatar, Rate, Typography, Empty, Input, Select } from "antd";
+import { UserOutlined, ShopOutlined, EnvironmentOutlined, CalendarOutlined, CheckCircleFilled, SearchOutlined } from "@ant-design/icons";
+import { useInfiniteQuery, keepPreviousData } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
 import ProductCard from "./ProductCart";
 import { useDispatch } from "react-redux";
@@ -26,10 +26,50 @@ const Saller = () => {
   const dispatch = useDispatch();
   const { ref, inView } = useInView();
 
+  // typing state (no fetch on keystroke)
+  const [searchInput, setSearchInput] = useState("");
+  // committed state (Enter triggers fetch)
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [sortBy, setSortBy] = useState("newest");
+
+  // stable ref so products never visually vanish between queries
+  const stableProductsRef = useRef([]);
+  const stableMerchantRef = useRef(null);
+  const stableMetaRef = useRef({ total: 0, page: 1, totalPages: 1, limit: PAGE_SIZE });
+  const productSectionRef = useRef(null);
+
+  const scrollToProducts = useCallback(() => {
+    productSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  // commit search only on Enter
+  const submitSearch = useCallback(() => {
+    const next = searchInput.trim();
+    if (next === searchTerm) return;
+    scrollToProducts();
+    setSearchTerm(next);
+  }, [searchInput, searchTerm]);
+
+  // clear search (x press / input empty)
+  const clearCommittedSearch = useCallback(() => {
+    if (!searchTerm) return;
+    scrollToProducts();
+    setSearchTerm("");
+  }, [searchTerm]);
+
   const fetchStorefront = useCallback(
     async ({ pageParam = 1 }) => {
+      const params = new URLSearchParams({
+        page: pageParam,
+        limit: PAGE_SIZE,
+        sort: sortBy,
+      });
+
+      if (searchTerm) params.set("search", searchTerm);
+
       const res = await fetch(
-        `${API_BASE}/api/merchant/${merchantId}/storefront?page=${pageParam}&limit=${PAGE_SIZE}`
+        `${API_BASE}/api/merchant/${merchantId}/storefront?${params.toString()}`
       );
 
       const contentType = res.headers.get("content-type") || "";
@@ -59,7 +99,7 @@ const Saller = () => {
         nextPage: currentPage < totalPages ? currentPage + 1 : undefined,
       };
     },
-    [merchantId]
+    [merchantId, searchTerm, sortBy]
   );
 
   const {
@@ -70,15 +110,17 @@ const Saller = () => {
     hasNextPage,
     isFetchingNextPage,
     isFetching,
+    isPlaceholderData,
   } = useInfiniteQuery({
-    queryKey: ["merchant-storefront", merchantId],
+    queryKey: ["merchant-storefront", merchantId, searchTerm, sortBy],
     queryFn: fetchStorefront,
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
     enabled: !!merchantId,
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30,
-    refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
@@ -105,8 +147,14 @@ const Saller = () => {
     message.success(`${qty} x ${product.name} added to cart`);
   };
 
-  const merchant = data?.pages?.[0]?.merchant || null;
-  const meta = data?.pages?.[0]?.meta || { total: 0, page: 1, totalPages: 1, limit: PAGE_SIZE };
+  const merchant = data?.pages?.[0]?.merchant || stableMerchantRef.current;
+  const meta = data?.pages?.[0]?.meta || stableMetaRef.current;
+
+  // keep stableRefs updated when fresh data arrives
+  useEffect(() => {
+    if (data?.pages?.[0]?.merchant) stableMerchantRef.current = data.pages[0].merchant;
+    if (data?.pages?.[0]?.meta) stableMetaRef.current = data.pages[0].meta;
+  }, [data]);
 
   const products = useMemo(() => {
     const map = new Map();
@@ -116,7 +164,11 @@ const Saller = () => {
         if (!map.has(p.id)) map.set(p.id, p);
       }
     }
-    return Array.from(map.values());
+    const fresh = Array.from(map.values());
+    if (fresh.length > 0) {
+      stableProductsRef.current = fresh;
+    }
+    return fresh.length > 0 ? fresh : stableProductsRef.current;
   }, [data]);
 
   const processProduct = (p) => {
@@ -170,113 +222,194 @@ const Saller = () => {
   const merchantName = merchant.name || "Merchant";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-slate-50 pb-12">
-      <div className="relative overflow-hidden border-b border-slate-200 bg-[radial-gradient(circle_at_10%_10%,#dbeafe_0%,transparent_45%),radial-gradient(circle_at_90%_20%,#cffafe_0%,transparent_45%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]">
-        <div className="max-w-7xl mx-auto px-4 pt-8 pb-6 md:pt-10 md:pb-8">
-          <div className="rounded-3xl border border-white/80 bg-white/80 backdrop-blur-sm shadow-sm p-5 md:p-7">
-          <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-            <Avatar
-              size={124}
-              src={getFullImageUrl(merchant.imageUrl)}
-              icon={<UserOutlined />}
-              className="border-4 border-white shadow-lg bg-gradient-to-br from-sky-100 to-cyan-100"
-            />
-            <div className="text-center md:text-left flex-1">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
-                  <Title level={2} style={{ marginBottom: 4, marginTop: 0 }}>
-                    {merchantName}
-                  </Title>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 text-sky-700 px-3 py-1 text-xs font-medium border border-sky-100">
-                    <ShopOutlined /> Verified Merchant Storefront
+    <div className="min-h-screen bg-slate-50 pb-12">
+      {/* Shimmer progress bar keyframe */}
+      <style>{`
+        @keyframes shimmerSlide {
+          0%   { left: -33%; }
+          100% { left: 100%; }
+        }
+      `}</style>
+
+      {/* Hero / Cover Area */}
+      <div className="relative h-48 md:h-64 w-full bg-gradient-to-r from-slate-800 via-slate-700 to-slate-900 overflow-hidden">
+        <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent"></div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-10">
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+          <div className="p-6 md:p-8">
+            <div className="flex flex-col md:flex-row gap-6 items-start">
+              {/* Avatar */}
+              <div className="relative shrink-0 mx-auto md:mx-0">
+                <div className="h-32 w-32 md:h-40 md:w-40 rounded-full p-1 bg-white shadow-md">
+                  <Avatar
+                    size={{ xs: 118, sm: 118, md: 150, lg: 150, xl: 150, xxl: 150 }}
+                    src={getFullImageUrl(merchant.imageUrl)}
+                    icon={<UserOutlined />}
+                    className="w-full h-full object-cover rounded-full border border-slate-100 bg-slate-50"
+                  />
+                </div>
+                <div
+                  className="absolute bottom-2 right-2 bg-blue-500 text-white p-1.5 rounded-full border-4 border-white shadow-sm"
+                  title="Verified Merchant"
+                >
+                  <CheckCircleFilled className="text-lg" />
+                </div>
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 text-center md:text-left w-full">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center justify-center md:justify-start gap-2">
+                      {merchantName}
+                      <CheckCircleFilled className="text-blue-500 text-xl" />
+                    </h1>
+                    <div className="flex items-center justify-center md:justify-start gap-2 mt-2 text-sm text-slate-600">
+                      <span className="flex items-center gap-1">
+                        <ShopOutlined /> Merchant Store
+                      </span>
+                      <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                      <span>ID: #{merchant.id}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-center md:items-end gap-1">
+                    <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">
+                      <span className="text-amber-500 font-bold text-lg">{avgRating.toFixed(1)}</span>
+                      <Rate disabled allowHalf value={avgRating} style={{ fontSize: 14, color: "#f59e0b" }} />
+                      <span className="text-xs text-slate-500 ml-1">({totalReviews} reviews)</span>
+                    </div>
                   </div>
                 </div>
-                <div className="hidden md:block text-right">
-                  <div className="text-xs uppercase tracking-wide text-slate-400">Store ID</div>
-                  <div className="text-sm font-semibold text-slate-700">#{merchant.id}</div>
+
+                <div className="mt-6 flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm text-slate-600">
+                  {profile.YourAddress && (
+                    <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
+                      <EnvironmentOutlined className="text-slate-400" />
+                      {profile.YourAddress}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
+                    <CalendarOutlined className="text-slate-400" />
+                    Joined {joinedDate}
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
+                    <ShopOutlined className="text-slate-400" />
+                    {meta.total} Products
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 text-gray-500 mb-4 mt-4 text-sm">
-                <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full border border-blue-100">
-                  <ShopOutlined /> Merchant
-                </span>
-                {profile.YourAddress && (
-                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-1 border border-emerald-100">
-                    <EnvironmentOutlined /> {profile.YourAddress}
-                  </span>
+                {profile.description && (
+                  <div className="mt-6 border-t border-slate-100 pt-4">
+                    <Paragraph
+                      className="text-slate-600 max-w-4xl mx-auto md:mx-0 mb-0 text-sm leading-relaxed"
+                      ellipsis={{ rows: 3, expandable: true, symbol: "more" }}
+                    >
+                      {profile.description}
+                    </Paragraph>
+                  </div>
                 )}
-                <span className="flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 px-2.5 py-1 border border-violet-100">
-                  <CalendarOutlined /> Joined {joinedDate}
-                </span>
               </div>
-
-              {profile.description && (
-                <Paragraph
-                  className="text-gray-600 max-w-3xl mx-auto md:mx-0 mb-0"
-                  ellipsis={{ rows: 3, expandable: true, symbol: "more" }}
-                >
-                  {profile.description}
-                </Paragraph>
-              )}
-            </div>
-          </div>
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500 mb-1">Average Rating</div>
-              <div className="flex items-center gap-2">
-                <span className="text-xl font-bold text-slate-900">{avgRating.toFixed(1)}</span>
-                <Rate disabled allowHalf value={avgRating} style={{ fontSize: 12 }} />
-              </div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500 mb-1">Total Reviews</div>
-              <div className="text-xl font-bold text-slate-900">{totalReviews}</div>
-              <div className="text-xs text-slate-400 mt-1">Customer feedback count</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500 mb-1">Listed Products</div>
-              <div className="text-xl font-bold text-slate-900">{meta.total}</div>
-              <div className="text-xs text-slate-400 mt-1">Currently available items</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500 mb-1">Store Since</div>
-              <div className="text-sm font-semibold text-slate-900 leading-5">{joinedDate}</div>
-              <div className="text-xs text-slate-400 mt-1">Trusted seller profile</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div ref={productSectionRef} className="max-w-7xl mx-auto px-4 py-8 scroll-mt-4">
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 md:p-5 mb-5">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <Title level={4} style={{ margin: 0 }}>
-                All Products
-              </Title>
-              <Text type="secondary" className="text-xs md:text-sm">
-                Browse products from this seller
-              </Text>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <Title level={4} style={{ margin: 0 }}>
+                  All Products
+                </Title>
+                <Text type="secondary" className="text-xs md:text-sm">
+                  Browse products from this seller
+                </Text>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5 border border-slate-200 text-xs md:text-sm">
+                <span className="text-slate-500">Loaded</span>
+                <span className="font-semibold text-slate-900">{products.length}</span>
+                <span className="text-slate-300">/</span>
+                <span className="font-semibold text-slate-900">{meta.total}</span>
+              </div>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5 border border-slate-200 text-xs md:text-sm">
-              <span className="text-slate-500">Loaded</span>
-              <span className="font-semibold text-slate-900">{products.length}</span>
-              <span className="text-slate-300">/</span>
-              <span className="font-semibold text-slate-900">{meta.total}</span>
+
+            {/* Search + Sort */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                allowClear
+                prefix={<SearchOutlined className="text-slate-400" />}
+                placeholder={`Search in ${merchantName}'s store...`}
+                value={searchInput}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSearchInput(v);
+
+                  // ✅ user clear (X) / empty input => reset committed search (smooth)
+                  if (v === "") {
+                    clearCommittedSearch();
+                  }
+                }}
+                onPressEnter={submitSearch} // ✅ only Enter triggers fetch
+                className="flex-1"
+                size="middle"
+              />
+              <Select
+                value={sortBy}
+                onChange={(v) => {
+                  scrollToProducts();
+                  setSortBy(v);
+                }}
+                size="middle"
+                style={{ minWidth: 148 }}
+                options={[
+                  { value: "newest",     label: "Newest first" },
+                  { value: "popular",    label: "Most popular" },
+                  { value: "rating",     label: "Top rated" },
+                  { value: "price_low",  label: "Price: low → high" },
+                  { value: "price_high", label: "Price: high → low" },
+                  { value: "oldest",     label: "Oldest first" },
+                ]}
+              />
             </div>
+
+            {searchTerm && (
+              <p className="text-xs text-slate-500 m-0">
+                {isFetching && !isFetchingNextPage
+                  ? "Searching..."
+                  : `${meta.total} result${meta.total !== 1 ? "s" : ""} for "`}
+                <strong>{searchTerm}</strong>
+                {!isFetching || isFetchingNextPage ? `"` : ""}
+              </p>
+            )}
           </div>
         </div>
 
-        {products.length === 0 ? (
+        {/* Shimmer progress bar while searching / sorting */}
+        {isFetching && !isFetchingNextPage && products.length > 0 && (
+          <div className="relative h-1 mb-4 rounded-full overflow-hidden bg-slate-100">
+            <div
+              className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-gradient-to-r from-blue-400 to-blue-600"
+              style={{ animation: "shimmerSlide 1.2s ease-in-out infinite" }}
+            />
+          </div>
+        )}
+
+        {products.length === 0 && !isFetching ? (
           <div className="py-12 bg-white rounded-2xl border border-dashed border-slate-300 flex justify-center">
-            <Empty description="No products found in this store." />
+            <Empty description={searchTerm ? `No products found for "${searchTerm}"` : "No products found in this store."} />
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+            <div
+              className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4 transition-opacity duration-300 ${
+                isFetching && !isFetchingNextPage && !isPlaceholderData ? "opacity-50" : "opacity-100"
+              }`}
+            >
               {products.map((p) => (
                 <ProductCard
                   key={p.id}

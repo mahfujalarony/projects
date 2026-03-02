@@ -100,7 +100,7 @@ async function canSubAdminManageSupport(req) {
     );
     return permRes.data?.permissions?.includes("manage_support_chat");
   } catch (e) {
-    console.error(`[Chat] Failed to fetch permissions for subadmin ${req.user.id}:`, e.message);
+
     return false; // Fail safe
   }
 }
@@ -136,7 +136,7 @@ router.post("/guest/session", async (req, res) => {
     const token = signGuestToken({ id: customerId, guestSessionKey, conversationId: conversation.id });
     res.json({ success: true, token, conversation });
   } catch (error) {
-    console.error("[Chat] Error in /guest/session:", error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -167,7 +167,7 @@ router.patch("/conversations/:id/block", auth, async (req, res) => {
     emitConversationStatusChanged(req, conversation);
     return res.json({ success: true, conversation });
   } catch (error) {
-    console.error(`[Chat] Error in /conversations/${req.params.id}/block:`, error);
+
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -198,7 +198,7 @@ router.patch("/conversations/:id/unblock", auth, async (req, res) => {
     emitConversationStatusChanged(req, conversation);
     return res.json({ success: true, conversation });
   } catch (error) {
-    console.error(`[Chat] Error in /conversations/${req.params.id}/unblock:`, error);
+
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -255,7 +255,7 @@ router.post("/conversations/open", auth, async (req, res) => {
 
     res.json({ success: true, conversation: convo });
   } catch (error) {
-    console.error("[Chat] Error in /conversations/open:", error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -338,7 +338,7 @@ router.get("/conversations/my", auth, async (req, res) => {
 
     res.json({ success: true, rows: rowsWithUnread, hasMore, nextCursor });
   } catch (error) {
-    console.error("[Chat] Error in /conversations/my:", error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -360,7 +360,7 @@ router.get("/conversations", auth, async (req, res) => {
     });
     res.json({ success: true, rows });
   } catch (error) {
-    console.error("[Chat] Error in /conversations:", error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -394,7 +394,7 @@ router.delete("/conversations/:id", auth, async (req, res) => {
 
     res.json({ success: true, deletedIds: [convoId] });
   } catch (error) {
-    console.error(`[Chat] Error in DELETE /conversations/${req.params.id}:`, error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -447,7 +447,7 @@ router.post("/conversations/bulk-delete", auth, async (req, res) => {
 
     res.json({ success: true, deletedIds: validIds });
   } catch (error) {
-    console.error("[Chat] Error in POST /conversations/bulk-delete:", error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
@@ -494,7 +494,7 @@ router.get("/conversations/:id/messages", auth, async (req, res) => {
 
     res.json({ success: true, rows, hasMore, nextBeforeId });
   } catch (error) {
-    console.error(`[Chat] Error in /conversations/${req.params.id}/messages:`, error);
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });

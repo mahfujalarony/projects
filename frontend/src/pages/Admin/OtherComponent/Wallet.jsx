@@ -51,7 +51,7 @@ export default function MobileBankingManager() {
       const list = Array.isArray(res?.data?.data?.numbers) ? res.data.data.numbers : [];
       setOverviewWalletNumbers(list);
     } catch (e) {
-      console.error(e);
+
       setOverviewWalletNumbers([]);
       message.error(e?.response?.data?.message || "Wallet numbers load failed");
     } finally {
@@ -105,7 +105,7 @@ export default function MobileBankingManager() {
       setRows(list);
       fetchWalletCounts(list);
     } catch (e) {
-      console.error(e);
+
       message.error("Mobile banking load failed");
       setWalletCountByProvider({});
       setAllWallets([]);
@@ -143,7 +143,7 @@ export default function MobileBankingManager() {
       setFileList([]);
       fetchAll();
     } catch (e) {
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Create failed");
     }
   };
@@ -190,7 +190,7 @@ export default function MobileBankingManager() {
       fetchAll();
     } catch (e) {
       if (e?.errorFields) return; // validation
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Update failed");
     }
   };
@@ -216,7 +216,7 @@ export default function MobileBankingManager() {
       setRows(prevRows);
       setAllWallets(prevAllWallets);
       setWalletCountByProvider(prevCountMap);
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Delete failed");
     }
   };
@@ -276,7 +276,7 @@ export default function MobileBankingManager() {
     } catch (e) {
       setAllWallets(prevAllWallets);
       setWalletCountByProvider(prevCountMap);
-      console.error(e);
+
       message.error(e?.response?.data?.message || "Delete wallet failed");
     }
   };

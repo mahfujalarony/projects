@@ -62,7 +62,6 @@ const AdminGate = ({ fallbackTo = "/login" }) => {
         );
       }
     } catch (e) {
-      console.error("AdminGate fetchMe error:", e);
       setIsAdmin(false);
       setLoading(false);
     } finally {

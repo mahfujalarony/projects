@@ -1,7 +1,7 @@
 ﻿// MyStore.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Modal, Form, Input, Button, message, Select, Tag } from "antd";
+import { Modal, Form, Input, Button, message, Select, Tag, Pagination } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
@@ -93,10 +93,17 @@ export default function MyStore() {
 
       const token = saved?.token;
 
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(12);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  // ✅ Initialize state from sessionStorage to persist pagination/search
+  const [page, setPage] = useState(() => Number(sessionStorage.getItem("ms_page") || 1));
+  const [limit, setLimit] = useState(() => Number(sessionStorage.getItem("ms_limit") || 12));
+  const [searchInput, setSearchInput] = useState(() => sessionStorage.getItem("ms_search") || "");
+  const [search, setSearch] = useState(() => sessionStorage.getItem("ms_search") || "");
+
+  useEffect(() => {
+    sessionStorage.setItem("ms_page", page);
+    sessionStorage.setItem("ms_limit", limit);
+    sessionStorage.setItem("ms_search", search);
+  }, [page, limit, search]);
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -127,7 +134,7 @@ export default function MyStore() {
       const j = await r.json();
 
       if (!r.ok) {
-        console.error("MyStore API error:", j);
+
         setRows([]);
         setMeta({ total: 0, page: 1, limit, totalPages: 1, hasNext: false, hasPrev: false });
         return;
@@ -136,7 +143,7 @@ export default function MyStore() {
       setRows(j?.data || []);
       setMeta(j?.meta || { total: 0, page, limit, totalPages: 1, hasNext: false, hasPrev: page > 1 });
     } catch (e) {
-      console.error(e);
+
       setRows([]);
       setMeta({ total: 0, page: 1, limit, totalPages: 1, hasNext: false, hasPrev: false });
     } finally {
@@ -146,19 +153,19 @@ export default function MyStore() {
 
   useEffect(() => {
     const t = window.setTimeout(() => {
-      setSearch(searchInput);
+      // Only update and reset page if search actually changed
+      if (searchInput !== search) {
+        setSearch(searchInput);
+        setPage(1);
+      }
     }, 350);
     return () => window.clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   useEffect(() => {
     loadMyStore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, limit]);
 
   const totalPages = meta?.totalPages || 1;
 
@@ -200,7 +207,7 @@ export default function MyStore() {
       try {
         json = JSON.parse(text);
       } catch (e) {
-        console.error("Server response:", text);
+
         throw new Error("Server returned HTML instead of JSON. Check backend route.");
       }
 
@@ -213,7 +220,7 @@ export default function MyStore() {
         message.error(json.message || "Update failed");
       }
     } catch (e) {
-      console.error(e);
+
       message.error(e.message || "Something went wrong");
     } finally {
       setUpdating(false);
@@ -240,7 +247,10 @@ export default function MyStore() {
 
             <select
               value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
+              onChange={(e) => {
+                setLimit(Number(e.target.value));
+                setPage(1);
+              }}
               className="h-9 w-full rounded-md border border-gray-300 bg-white px-3 text-sm outline-none focus:border-gray-400 md:h-10 md:w-[120px]"
             >
               {[8, 12, 16, 24].map((n) => (
@@ -343,37 +353,18 @@ export default function MyStore() {
       )}
 
       {/* Pagination */}
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPage((x) => Math.max(1, x - 1))}
-            disabled={loading || page <= 1}
-            className="h-10 rounded-md border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
-          >
-            Prev
-          </button>
-
-          <button
-            onClick={() => setPage((x) => Math.min(totalPages, x + 1))}
-            disabled={loading || page >= totalPages}
-            className="h-10 rounded-md border border-gray-300 bg-white px-4 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
-          >
-            Next
-          </button>
+      {meta?.total > limit && (
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+          <Pagination
+            size="small"
+            current={page}
+            pageSize={limit}
+            total={meta?.total || 0}
+            onChange={(p) => setPage(p)}
+            showSizeChanger={false}
+          />
         </div>
-
-        <div className="text-sm text-gray-700 sm:ml-2">
-          Page <span className="font-semibold">{page}</span> /{" "}
-          <span className="font-semibold">{totalPages}</span>
-        </div>
-
-        <div className="text-sm text-gray-500 sm:ml-auto">
-          Showing{" "}
-          {meta?.total
-            ? `${(page - 1) * limit + 1}-${Math.min(page * limit, meta.total)}`
-            : "0-0"}
-        </div>
-      </div>
+      )}
 
       {/* Edit Modal */}
       <Modal
@@ -426,4 +417,3 @@ export default function MyStore() {
     </div>
   );
 }
-

@@ -56,7 +56,6 @@ exports.getMyOrders = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("GET MY ORDERS ERROR:", err);
     return res.status(500).json({ message: err?.message || "Server error" });
   }
 };
@@ -76,10 +75,7 @@ exports.createCustomerOrder = async (req, res) => {
       deliveryCharge: dcInput,
     } = req.body;
 
-    // ✅ Debug Log: Check if deliveryCharge is received
-    console.log("createCustomerOrder Payload:", { userId, itemsCount: items?.length, deliveryCharge: dcInput });
 
-    // basic validations
     if (!userId) {
       await t.rollback();
       return res.status(401).json({ message: "Unauthorized (userId missing)" });
@@ -135,6 +131,7 @@ exports.createCustomerOrder = async (req, res) => {
     const commissionAmount = Number(
       ((productsTotal * sellerCommissionPercent) / 100).toFixed(2)
     );
+    // Merchant receives product total PLUS platform commission (admin absorbs commission as incentive)
     const merchantCreditTotal = Number((productsTotal + commissionAmount).toFixed(2));
 
     let user = null;
@@ -173,14 +170,7 @@ exports.createCustomerOrder = async (req, res) => {
         await merchant.save({ transaction: t });
       }
 
-      // ✅ Credit Admin (Add delivery charge to admin)
-      if (deliveryCharge > 0) {
-        const admin = await User.findOne({ where: { role: "admin" }, transaction: t, lock: t.LOCK.UPDATE });
-        if (admin) {
-          admin.balance = Number(admin.balance || 0) + deliveryCharge;
-          await admin.save({ transaction: t });
-        }
-      }
+      // Delivery charge is consumed (pays actual delivery cost) — not credited to any account
     }
 
     // products lock
@@ -255,20 +245,26 @@ exports.createCustomerOrder = async (req, res) => {
     }
 
     // order items create
-    const rowsToCreate = items.map((it, idx) => ({
-      userId,
-      addressId,
-      matchMerchantId,
-      paymentMethod,
-      paymentStatus,
-      productId: it.productId, 
-      name: it.name,
-      price: it.price,
-      quantity: it.quantity,
-      imageUrl: it.imageUrl || null,
-      status: "pending",
-      deliveryCharge: idx === 0 ? deliveryCharge : 0, // Assign delivery charge to first item
-    }));
+    const rowsToCreate = items.map((it, idx) => {
+      const lineTotal = Number(it.price) * Number(it.quantity);
+      const lineCommission = Number(((lineTotal * sellerCommissionPercent) / 100).toFixed(2));
+      return {
+        userId,
+        addressId,
+        matchMerchantId,
+        paymentMethod,
+        paymentStatus,
+        productId: it.productId, 
+        name: it.name,
+        price: it.price,
+        quantity: it.quantity,
+        imageUrl: it.imageUrl || null,
+        status: "pending",
+        deliveryCharge: idx === 0 ? deliveryCharge : 0,
+        commissionPercent: sellerCommissionPercent,
+        commissionAmount: lineCommission,
+      };
+    });
 
     const created = await OrderItem.bulkCreate(rowsToCreate, {
       transaction: t,
@@ -286,7 +282,7 @@ exports.createCustomerOrder = async (req, res) => {
     }
 
     if (merchant) {
-      const merchantMessage = `New order #${primaryOrderId} received (${items.length} item(s), qty ${totalQty}). Credited ${merchantCreditTotal} including ${commissionAmount} commission.`;
+      const merchantMessage = `New order #${primaryOrderId} received (${items.length} item(s), qty ${totalQty}). Credited ৳${merchantCreditTotal} (৳${productsTotal} sale + ৳${commissionAmount} platform bonus).`;
 
       notifications.push({
         userId: matchMerchantId,
@@ -334,7 +330,6 @@ exports.createCustomerOrder = async (req, res) => {
       statDate,
     });
   } catch (err) {
-    console.error("createCustomerOrder error:", err);
     await t.rollback();
     return res.status(500).json({ message: err.message || "Failed to place order" });
   }
@@ -390,7 +385,6 @@ exports.getMyOrders = async (req, res) => {
       totalPages: Math.max(1, Math.ceil(count / limitNum)),
     });
   } catch (err) {
-    console.error("getMyOrders error:", err);
     return res.status(500).json({ ok: false, message: "Server error" });
   }
 };
@@ -551,7 +545,6 @@ exports.cancelMyOrder = async (req, res) => {
       balanceAfter,
     });
   } catch (err) {
-    console.error("cancelMyOrder error:", err);
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }

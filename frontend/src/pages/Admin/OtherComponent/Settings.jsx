@@ -59,7 +59,7 @@ const Settings = () => {
         form.setFieldsValue(next);
       }
     } catch (error) {
-      console.error(error);
+
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ const Settings = () => {
       });
       message.success("Settings updated");
     } catch (error) {
-      console.error(error);
+
       message.error("Failed to update settings");
     } finally {
       setSaving(false);

@@ -76,7 +76,7 @@ export default function MediaCleanup() {
       setSummary(data.summary || null);
       setSelectedRowKeys([]);
     } catch (err) {
-      console.error(err);
+
       message.error(err?.response?.data?.message || "Failed to scan orphan images");
     } finally {
       setLoading(false);
@@ -104,7 +104,7 @@ export default function MediaCleanup() {
       message.success(`Deleted ${deleted} orphan image(s)${skipped ? `, skipped ${skipped}` : ""}`);
       await fetchOrphans();
     } catch (err) {
-      console.error(err);
+
       message.error(err?.response?.data?.message || "Failed to delete orphan images");
     } finally {
       setDeleting(false);

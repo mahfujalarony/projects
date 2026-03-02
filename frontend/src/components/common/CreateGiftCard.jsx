@@ -25,6 +25,7 @@ import {
 import axios from "axios";
 import { API_BASE_PATH } from "../../config/env";
 import { useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -253,6 +254,7 @@ function CreatedSuccess({ card, onReset }) {
 export default function CreateGiftCard() {
   const currentUser = useSelector((state) => state.auth.user);
   const token = useSelector((state) => state.auth.token) || "";
+  const navigate = useNavigate();
 
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -321,15 +323,30 @@ export default function CreateGiftCard() {
             </p>
           </div>
 
-          <div className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 shadow-sm">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white">
-              <GiftOutlined />
-            </span>
-            <div className="leading-tight">
-              <p className="text-xs text-zinc-500">Signed in as</p>
-              <p className="text-sm font-semibold text-zinc-900">
-                {currentUser?.name || "Guest"}
-              </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              className="rounded-2xl"
+              onClick={() => navigate("/profile/my-giftcards")}
+            >
+              My Cards
+            </Button>
+            <Button
+              className="rounded-2xl"
+              onClick={() => navigate("/gift-card/claim")}
+            >
+              Claim
+            </Button>
+
+            <div className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 shadow-sm">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white">
+                <GiftOutlined />
+              </span>
+              <div className="leading-tight">
+                <p className="text-xs text-zinc-500">Signed in as</p>
+                <p className="text-sm font-semibold text-zinc-900">
+                  {currentUser?.name || "Guest"}
+                </p>
+              </div>
             </div>
           </div>
         </div>

@@ -97,7 +97,6 @@ exports.listTopups = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("listTopups error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -144,7 +143,6 @@ exports.approveTopup = async (req, res) => {
     await t.commit();
     return res.json({ success: true, message: "Approved & balance added", data: { request: row, userBalance: user.balance } });
   } catch (err) {
-    console.error("approveTopup error:", err);
     await t.rollback();
     return res.status(500).json({ success: false, message: "Server error" });
   }
@@ -171,7 +169,6 @@ exports.rejectTopup = async (req, res) => {
 
     return res.json({ success: true, message: "Rejected", data: row });
   } catch (err) {
-    console.error("rejectTopup error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -204,7 +201,6 @@ exports.blockUserTopup = async (req, res) => {
       data: { userId: user.id, topupBlockedUntil: user.topupBlockedUntil },
     });
   } catch (err) {
-    console.error("blockUserTopup error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -228,7 +224,6 @@ exports.unblockUserTopup = async (req, res) => {
       data: { userId: user.id, topupBlockedUntil: null },
     });
   } catch (err) {
-    console.error("unblockUserTopup error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -248,7 +243,6 @@ exports.deleteTopup = async (req, res) => {
     await row.destroy();
     return res.json({ success: true, message: "Topup request deleted" });
   } catch (err) {
-    console.error("deleteTopup error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
