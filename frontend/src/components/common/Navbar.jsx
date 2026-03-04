@@ -578,7 +578,7 @@ const RightSection = ({ notificationCount, user, totalUnreadCount, isMobile }) =
         onClick={() => navigate("/chats")}
         className="cursor-pointer relative hover:scale-110 transition-transform duration-200"
       >
-        <Badge count={Number(totalUnreadCount || 0)} offset={[-5, 5]} size="small">
+        <Badge count={Number(totalUnreadCount || 0)} overflowCount={9} offset={[-5, 5]} size="small">
           <div className="bg-gradient-to-br from-blue-100 to-cyan-100 p-2 rounded-full hover:from-blue-200 hover:to-cyan-200 transition-all duration-300">
             <MessageOutlined className="text-xl text-blue-600" />
           </div>

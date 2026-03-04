@@ -13,6 +13,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { setAuthState } from "../../redux/authSlice.js";
 import { CHAT_BASE_URL } from "../../config/env.js";
 import { User } from "lucide-react";
+import { normalizeImageUrl } from "../../utils/imageUrl.js";
 
 const UserDropDown = () => {
   const navigate = useNavigate();
@@ -77,7 +78,7 @@ const UserDropDown = () => {
         <div className="flex items-center gap-3">
               {user?.imageUrl ? (
                 <img
-                  src={user.imageUrl}
+                  src={normalizeImageUrl(user.imageUrl)}
                   alt={user?.name || "User"}
                   className="w-11 h-11 rounded-full object-cover border border-white shadow"
                 />
@@ -133,7 +134,7 @@ const UserDropDown = () => {
                    focus:outline-none focus:ring-2 focus:ring-slate-200"
       >
         <img
-          src={user?.imageUrl || fallbackuserImage}
+          src={normalizeImageUrl(user?.imageUrl) || fallbackuserImage}
           alt={user?.name || "User"}
           className="w-9 h-9 rounded-full object-cover border border-slate-200"
         />

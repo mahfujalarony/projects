@@ -282,7 +282,7 @@ exports.createCustomerOrder = async (req, res) => {
     }
 
     if (merchant) {
-      const merchantMessage = `New order #${primaryOrderId} received (${items.length} item(s), qty ${totalQty}). Credited ৳${merchantCreditTotal} (৳${productsTotal} sale + ৳${commissionAmount} platform bonus).`;
+      const merchantMessage = `New order #${primaryOrderId} received (${items.length} item(s), qty ${totalQty}). Credited $${merchantCreditTotal} ($${productsTotal} sale + $${commissionAmount} platform bonus).`;
 
       notifications.push({
         userId: matchMerchantId,

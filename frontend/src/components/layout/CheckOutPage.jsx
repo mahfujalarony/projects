@@ -43,6 +43,8 @@ const CheckoutPage = () => {
   const [balLoading, setBalLoading] = useState(false);
   const [balance, setBalance] = useState(0);
   const [stockMap, setStockMap] = useState({}); // { [productId]: currentStock }
+  const [confirmCooldown, setConfirmCooldown] = useState(false);
+  const lastConfirmRef = React.useRef(0);
 
   const [form] = Form.useForm();
   const screens = useBreakpoint();
@@ -215,8 +217,28 @@ const CheckoutPage = () => {
 
   const insufficient = Number(balance) < Number(totals.payable);
 
+  const ensureLoggedIn = () => {
+    const token = getToken();
+    if (!token) {
+      Modal.confirm({
+        title: "Login required",
+        content: "You need to login to continue. Do you want to login now?",
+        okText: "Login",
+        cancelText: "Cancel",
+        onOk: () => navigate("/login"),
+      });
+      return false;
+    }
+    return true;
+  };
+
   // ✅ Place Order (Balance required always)
   const handlePlaceOrder = async () => {
+    const now = Date.now();
+    if (confirmCooldown || (now - lastConfirmRef.current < 60000)) {
+      message.info("Please wait a minute for the next order.");
+      return;
+    }
     if (!selectedAddress) return message.error("Please select an address");
     if (cartItems.length === 0) return message.error("Your cart is empty");
 
@@ -267,6 +289,9 @@ const CheckoutPage = () => {
     };
 
     try {
+      lastConfirmRef.current = now;
+      setConfirmCooldown(true);
+      setTimeout(() => setConfirmCooldown(false), 60000);
       setLoading(true);
 
       const res = await fetch(`${API_BASE}/api/orders`, {
@@ -285,7 +310,7 @@ const CheckoutPage = () => {
         message.error(msg);
         if (data?.balance != null && data?.required != null) {
           message.info(
-            `Balance: ৳${Number(data.balance).toFixed(2)}, Required: ৳${Number(data.required).toFixed(2)}`
+            `Balance: $${Number(data.balance).toFixed(2)}, Required: $${Number(data.required).toFixed(2)}`
           );
         }
         return;
@@ -315,60 +340,119 @@ const CheckoutPage = () => {
         <Text type="secondary">Cart empty</Text>
       ) : (
         <List
-          itemLayout={isMobile ? "vertical" : "horizontal"}
+          itemLayout="vertical"
           dataSource={cartItems}
-          renderItem={(item) => (
-            <List.Item
-              actions={[
-                <Space key="qtyctrl" size={4} wrap>
-                  <Button
-                    size="small"
-                    icon={<MinusOutlined />}
-                    onClick={() => handleDecrease(item.id, item.qty)}
-                    disabled={item.qty <= 1}
-                  />
-                  <Text style={{ minWidth: 20, textAlign: "center" }}>
-                    {Number(item.qty).toFixed(0)}
-                  </Text>
-                  <Button
-                    size="small"
-                    icon={<PlusOutlined />}
-                    onClick={() => handleIncrease(item.id, item.qty)}
-                    disabled={stockMap[item.id] !== undefined && item.qty >= stockMap[item.id]}
-                  />
-                </Space>,
-                <Text key="line" strong>
-                  ৳{Number(Number(item.price) * Number(item.qty)).toFixed(2)}
-                </Text>,
-                <Popconfirm
-                  key="del"
-                  title="Remove this item?"
-                  onConfirm={() => handleRemove(item.id)}
+          renderItem={(item) => {
+            const lineTotal = Number(item.price) * Number(item.qty);
+            const stock = stockMap[item.id];
+            return (
+              <List.Item style={{ border: "none", padding: 0, marginBottom: 12 }}>
+                <Card
+                  size="small"
+                  bodyStyle={{ padding: 12, border: "1px solid #fde68a" }}
+                  hoverable
+                  onClick={() => navigate(`/products/${item.id}`)}
+                  style={{ cursor: "pointer" }}
                 >
-                  <Button type="text" danger icon={<DeleteOutlined />} />
-                </Popconfirm>,
-              ]}
-            >
-              <List.Item.Meta
-                avatar={
-                  <img
-                    src={item.imageUrl}
-                    alt={item.name}
+                  <div
                     style={{
-                      width: 56,
-                      height: 56,
-                      objectFit: "cover",
-                      borderRadius: 8,
+                      display: "flex",
+                      flexDirection: isMobile ? "column" : "row",
+                      gap: 12,
+                      width: "100%",
                     }}
-                  />
-                }
-                title={item.name}
-                description={
-                  <Text type="secondary">Unit: ৳{Number(item.price).toFixed(2)}</Text>
-                }
-              />
-            </List.Item>
-          )}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 12,
+                        minWidth: 0,
+                        alignItems: "flex-start",
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        style={{
+                          width: isMobile ? 72 : 64,
+                          height: isMobile ? 72 : 64,
+                          objectFit: "cover",
+                          borderRadius: 10,
+                          border: "1px solid #f1f5f9",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div style={{ minWidth: 0 }}>
+                        <Text
+                          strong
+                          style={{
+                            fontSize: 15,
+                            lineHeight: 1.3,
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {item.name}
+                        </Text>
+                        <div>
+                          <Text type="secondary">Unit price: ${Number(item.price).toFixed(2)}</Text>
+                        </div>
+                        {stock !== undefined ? (
+                          <div>
+                            <Text type="secondary">In stock: {Number(stock)}</Text>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: isMobile ? "row" : "column",
+                        alignItems: isMobile ? "center" : "flex-end",
+                        justifyContent: isMobile ? "space-between" : "flex-start",
+                        gap: 8,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Space key="qtyctrl" size={4} wrap>
+                        <Button
+                          size="small"
+                          icon={<MinusOutlined />}
+                          onClick={() => handleDecrease(item.id, item.qty)}
+                          disabled={item.qty <= 1}
+                        />
+                        <Text style={{ minWidth: 20, textAlign: "center" }}>
+                          {Number(item.qty).toFixed(0)}
+                        </Text>
+                        <Button
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={() => handleIncrease(item.id, item.qty)}
+                          disabled={stockMap[item.id] !== undefined && item.qty >= stockMap[item.id]}
+                        />
+                      </Space>
+                      <Text strong>${Number(lineTotal).toFixed(2)}</Text>
+                      <Popconfirm
+                        title="Remove this item?"
+                        onConfirm={() => handleRemove(item.id)}
+                      >
+                        <Button type="text" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </div>
+                  </div>
+
+                  <Divider style={{ margin: "10px 0" }} />
+                  <Text type="secondary">
+                    You added {Number(item.qty)} item{Number(item.qty) > 1 ? "s" : ""}, total price is ${Number(lineTotal).toFixed(2)}.
+                  </Text>
+                </Card>
+              </List.Item>
+            );
+          }}
         />
       )}
     </Card>
@@ -391,20 +475,20 @@ const CheckoutPage = () => {
 
       <Card
         title="Order Summary"
-        extra={<Tag color="orange">Pay ৳{Number(totals.payable).toFixed(2)}</Tag>}
+        extra={<Tag color="orange">Pay ${Number(totals.payable).toFixed(2)}</Tag>}
       >
         <Space direction="vertical" style={{ width: "100%" }}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
             <Text>Subtotal</Text>
-            <Text>৳{Number(totals.subtotal).toFixed(2)}</Text>
+            <Text>${Number(totals.subtotal).toFixed(2)}</Text>
           </Space>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
             <Text>Shipping</Text>
-            <Text>৳{Number(totals.shipping).toFixed(2)}</Text>
+            <Text>${Number(totals.shipping).toFixed(2)}</Text>
           </Space>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
             <Text>Discount</Text>
-            <Text type="success">- ৳{Number(totals.discount).toFixed(2)}</Text>
+            <Text type="success">- ${Number(totals.discount).toFixed(2)}</Text>
           </Space>
           <Divider style={{ margin: "8px 0" }} />
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -412,7 +496,7 @@ const CheckoutPage = () => {
               Payable
             </Title>
             <Title level={5} style={{ margin: 0 }}>
-              ৳{Number(totals.payable).toFixed(2)}
+              ${Number(totals.payable).toFixed(2)}
             </Title>
           </Space>
 
@@ -426,7 +510,7 @@ const CheckoutPage = () => {
 
             <Space style={{ width: "100%", justifyContent: "space-between" }}>
               <Text>Current Balance</Text>
-              <Text strong>৳{Number(balance).toFixed(2)}</Text>
+              <Text strong>${Number(balance).toFixed(2)}</Text>
             </Space>
 
             {balLoading ? (
@@ -454,7 +538,7 @@ const CheckoutPage = () => {
               <Button onClick={fetchBalance} loading={balLoading}>
                 {balLoading ? "Refreshing..." : "Refresh Balance"}
               </Button>
-              <Button type="link" onClick={() => navigate("/add-balance")}>
+              <Button type="link" onClick={() => ensureLoggedIn() && navigate("/add-balance")}>
                 Add Balance
               </Button>
             </Space>
@@ -468,7 +552,10 @@ const CheckoutPage = () => {
           <Button
             type="primary"
             size={isMobile ? "small" : "middle"}
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => {
+              if (!ensureLoggedIn()) return;
+              setIsAddModalOpen(true);
+            }}
           >
             + Add new
           </Button>
@@ -511,7 +598,7 @@ const CheckoutPage = () => {
         ) : (
           <Space direction="vertical">
             <Text type="secondary">No address added.</Text>
-            <Button type="dashed" onClick={() => setIsAddModalOpen(true)}>
+            <Button type="dashed" onClick={() => ensureLoggedIn() && setIsAddModalOpen(true)}>
               + Add Address
             </Button>
           </Space>
@@ -525,9 +612,9 @@ const CheckoutPage = () => {
           style={{ width: isMobile ? "100%" : "auto" }}
           onClick={handlePlaceOrder}
           loading={loading}
-          disabled={loading || insufficient}
+          disabled={loading || insufficient || confirmCooldown}
         >
-          Pay with Balance - ৳{Number(totals.payable).toFixed(2)}
+          Confirm Order - Pay ${Number(totals.payable).toFixed(2)}
         </Button>
       </Space>
 

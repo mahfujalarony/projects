@@ -4,12 +4,12 @@ const GiftCard = require('../models/GiftCard');
 const User = require('../models/Authentication');
 const { Transaction } = require('sequelize');
 
-// Generate a unique gift card code: GIFT-XXXX-XXXX
+// Generate a unique gift card code: GIFT-XXXX-XXXX-XXXX
 const generateCode = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const seg = (len) =>
     Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `GIFT-${seg(4)}-${seg(4)}`;
+  return `GIFT-${seg(4)}-${seg(4)}-${seg(4)}`;
 };
 
 // POST /api/giftcards/create
@@ -146,7 +146,7 @@ const claimGiftCard = async (req, res) => {
 
     if (!giftCard) {
       await t.rollback();
-      return res.status(404).json({ success: false, message: 'এই কোডটি বৈধ নয়' });
+      return res.status(404).json({ success: false, message: 'Gift card not found' });
     }
 
     if (giftCard.status === 'claimed') {
@@ -194,7 +194,7 @@ const claimGiftCard = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `🎉 Gift card claimed successfully! ৳${parseFloat(giftCard.amount).toFixed(2)} has been added to your account.`,
+      message: `🎉 Gift card claimed successfully! $${parseFloat(giftCard.amount).toFixed(2)} has been added to your account.`,
       claimedAmount: parseFloat(giftCard.amount),
       newBalance: newBalance,
     });
@@ -210,6 +210,7 @@ const getSentCards = async (req, res) => {
     const userId = req.user.id;
     const cards = await GiftCard.findAll({
       where: { createdBy: userId },
+      include: [{ model: User, as: "claimer", attributes: ["id", "name", "email"] }],
       order: [['createdAt', 'DESC']],
     });
     return res.json({ success: true, cards });
@@ -224,7 +225,7 @@ const getReceivedCards = async (req, res) => {
     const userId = req.user.id;
     const cards = await GiftCard.findAll({
       where: { claimedBy: userId },
-      include: [{ model: User, as: 'creator', attributes: ['name', 'email'] }],
+      include: [{ model: User, as: 'creator', attributes: ['name', 'email', 'imageUrl'] }],
       order: [['createdAt', 'DESC']],
     });
     return res.json({ success: true, cards });
@@ -243,22 +244,48 @@ const verifyCode = async (req, res) => {
     });
 
     if (!giftCard) {
-      return res.json({ success: false, valid: false, message: 'Code Not Found' });
+      return res.status(400).json({ success: false, valid: false, message: 'Wrong gift card code' });
     }
 
     // Check expiry
     if (giftCard.expiresAt && new Date() > new Date(giftCard.expiresAt)) {
-      return res.json({ success: true, valid: false, status: 'expired', message: 'Expired' });
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        status: 'expired',
+        message: 'Wrong gift card code',
+      });
     }
 
-    return res.json({
-      success: true,
-      valid: giftCard.status === 'active',
+    // Check if already claimed - return 400 so rate limiter counts it
+    if (giftCard.status === 'claimed') {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        status: 'claimed',
+        message: 'Wrong gift card code',
+      });
+    }
+
+    // Only active cards return 200 (successful request - not counted by rate limiter)
+    if (giftCard.status === 'active') {
+      return res.status(200).json({
+        success: true,
+        valid: true,
+        status: 'active',
+        amount: giftCard.amount,
+        message: giftCard.message || null,
+        creatorName: giftCard.creator?.name,
+        expiresAt: giftCard.expiresAt,
+      });
+    }
+
+    // Any other status is invalid
+    return res.status(400).json({
+      success: false,
+      valid: false,
       status: giftCard.status,
-      amount: giftCard.amount,
-      message: giftCard.message,
-      creatorName: giftCard.creator?.name,
-      expiresAt: giftCard.expiresAt,
+      message: 'Wrong gift card code',
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -271,7 +298,7 @@ const getUserBalance = async (req, res) => {
     const user = await User.findByPk(req.params.userId, {
       attributes: ['id', 'name', 'email', 'balance'],
     });
-    if (!user) return res.status(404).json({ success: false, message: 'User পাওয়া যায়নি' });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     return res.json({ success: true, user });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

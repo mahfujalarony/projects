@@ -276,7 +276,7 @@ const Profile = () => {
                 <div>
                   <p className="text-white/80 text-sm">Available Balance</p>
                   <h2 className="text-3xl sm:text-4xl font-extrabold mt-1">
-                    ৳ {Number(profile.balance || 0)}
+                    ${Number(profile.balance || 0)}
                   </h2>
                   <p className="text-white/80 text-sm mt-2">
                     Use balance for faster checkout & special offers.

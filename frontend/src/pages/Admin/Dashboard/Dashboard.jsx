@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { Card, Row, Col, Statistic } from "antd";
+import { Card, Row, Col, Statistic, Popover } from "antd";
 import UplotReact from "uplot-react";
 import "uplot/dist/uPlot.min.css";
 import axios from "axios";
@@ -17,6 +17,36 @@ import {
 } from "lucide-react";
 
 const API_BASE = `${API_BASE_URL}/api`;
+
+const formatCompact = (value, { currency = false } = {}) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return value;
+  const formatted = Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 2,
+  }).format(n);
+  return currency ? `$${formatted}` : formatted;
+};
+
+const formatFull = (value, { currency = false } = {}) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return value;
+  const formatted = Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+  }).format(n);
+  return currency ? `$${formatted}` : formatted;
+};
+
+const compactWithPopover = (value, { currency = false } = {}) => {
+  const compact = formatCompact(value, { currency });
+  const full = formatFull(value, { currency });
+  if (String(compact) === String(full)) return compact;
+  return (
+    <Popover content={<span className="font-semibold">{full}</span>} trigger="click">
+      <span className="cursor-pointer underline decoration-dotted underline-offset-2">{compact}</span>
+    </Popover>
+  );
+};
 
 // ─── Donut / Pie chart drawn on a plain <canvas> (no recharts, no uPlot) ──────
 const DonutChart = ({ data, colors }) => {
@@ -330,7 +360,7 @@ const Dashboard = () => {
           </div>
           <div className="rounded-xl bg-white/10 p-3">
             <div className="text-xs text-slate-200">Today Sales</div>
-            <div className="text-lg font-semibold">BDT {Number(stats.today.sales || 0).toLocaleString()}</div>
+            <div className="text-lg font-semibold">{compactWithPopover(stats.today.sales || 0, { currency: true })}</div>
           </div>
           <div className="rounded-xl bg-white/10 p-3">
             <div className="text-xs text-slate-200">Pending Topups</div>
@@ -347,62 +377,62 @@ const Dashboard = () => {
       <Row gutter={[16, 16]} className="mb-8">
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white">
-            <Statistic title="Total Users" value={stats.users} prefix={<UsersIcon size={18} className="text-blue-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Total Users" value={stats.users} formatter={(v) => compactWithPopover(v)} prefix={<UsersIcon size={18} className="text-blue-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white">
-            <Statistic title="Total Products" value={stats.products} prefix={<PackageIcon size={18} className="text-green-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Total Products" value={stats.products} formatter={(v) => compactWithPopover(v)} prefix={<PackageIcon size={18} className="text-green-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white">
-            <Statistic title="Total Orders" value={stats.orders} prefix={<ClipboardList size={18} className="text-purple-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Total Orders" value={stats.orders} formatter={(v) => compactWithPopover(v)} prefix={<ClipboardList size={18} className="text-purple-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-orange-100 bg-gradient-to-br from-orange-50 to-white">
-            <Statistic title="Merchant Requests" value={stats.pendingMerchantRequests} prefix={<Store size={18} className="text-orange-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Merchant Requests" value={stats.pendingMerchantRequests} formatter={(v) => compactWithPopover(v)} prefix={<Store size={18} className="text-orange-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white">
-            <Statistic title="Today's Sales" value={stats.today.sales} precision={2} prefix={<CircleDollarSign size={18} className="text-emerald-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Today's Sales" value={stats.today.sales} formatter={(v) => compactWithPopover(v, { currency: true })} prefix="$" valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white">
-            <Statistic title="Users Total Balance" value={stats.balances.users} precision={2} prefix={<WalletIcon size={18} className="text-violet-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Users Total Balance" value={stats.balances.users} formatter={(v) => compactWithPopover(v, { currency: true })} prefix="$" valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white">
-            <Statistic title="Low Stock Products" value={stats.inventory.lowStockProducts} prefix={<Boxes size={18} className="text-amber-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Low Stock Products" value={stats.inventory.lowStockProducts} formatter={(v) => compactWithPopover(v)} prefix={<Boxes size={18} className="text-amber-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 to-white">
-            <Statistic title="Pending Topups" value={stats.pendingTopups} prefix={<Zap size={18} className="text-red-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Pending Topups" value={stats.pendingTopups} formatter={(v) => compactWithPopover(v)} prefix={<Zap size={18} className="text-red-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 to-white">
-            <Statistic title="Today's Orders" value={stats.today.orders} prefix={<ClipboardList size={18} className="text-sky-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Today's Orders" value={stats.today.orders} formatter={(v) => compactWithPopover(v)} prefix={<ClipboardList size={18} className="text-sky-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white">
-            <Statistic title="New Users Today" value={stats.today.newUsers} prefix={<UsersIcon size={18} className="text-indigo-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="New Users Today" value={stats.today.newUsers} formatter={(v) => compactWithPopover(v)} prefix={<UsersIcon size={18} className="text-indigo-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-green-100 bg-gradient-to-br from-green-50 to-white">
-            <Statistic title="Approved Merchants" value={stats.approvedMerchants} prefix={<Store size={18} className="text-green-600" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Approved Merchants" value={stats.approvedMerchants} formatter={(v) => compactWithPopover(v)} prefix={<Store size={18} className="text-green-600" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} className="shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all rounded-2xl border border-rose-100 bg-gradient-to-br from-rose-50 to-white">
-            <Statistic title="Out Of Stock" value={stats.inventory.outOfStockProducts} prefix={<Boxes size={18} className="text-rose-500" />} valueStyle={{ fontWeight: "bold" }} />
+            <Statistic title="Out Of Stock" value={stats.inventory.outOfStockProducts} formatter={(v) => compactWithPopover(v)} prefix={<Boxes size={18} className="text-rose-500" />} valueStyle={{ fontWeight: "bold" }} />
           </Card>
         </Col>
       </Row>

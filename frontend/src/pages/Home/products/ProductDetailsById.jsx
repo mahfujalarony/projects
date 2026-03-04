@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Card,
@@ -20,6 +20,8 @@ import axios from "axios";
 import { normalizeImageUrl } from "../../../utils/imageUrl";
 import { API_BASE_URL } from "../../../config/env";
 import "./ProductDetailsById.css";
+import { canAddToCart } from "../../../utils/cartAddGuard";
+import { animateAddToCart, bumpCartBadge } from "../../../utils/cartAnimation";
 
 const { Title, Text } = Typography;
 const API_BASE = `${API_BASE_URL}`;
@@ -37,6 +39,10 @@ const ProductDetailsById = () => {
   const [activeImg, setActiveImg] = useState(null);
   const [relatedProducts, setRelatedProducts] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
+  const addButtonRef = useRef(null);
+  const [addCooldown, setAddCooldown] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
   const cartItem = useMemo(
     () => cartItems.find((item) => String(item.id) === String(id)),
@@ -118,6 +124,12 @@ const ProductDetailsById = () => {
 
   const images = Array.isArray(product?.images) ? product.images : [];
   const mainImg = activeImg || images[0] || null;
+  const previewItems = useMemo(() => {
+    const cleaned = images.map((src) => cleanImage(src)).filter(Boolean);
+    if (cleaned.length) return cleaned;
+    const fallback = cleanImage(mainImg);
+    return fallback ? [fallback] : [];
+  }, [images, mainImg]);
 
   const handleQtyChange = (value) => {
     const v = Math.max(1, Number(value || 1));
@@ -153,6 +165,10 @@ const ProductDetailsById = () => {
       message.error("Out of stock");
       return;
     }
+    if (addCooldown || !canAddToCart(product?.id)) {
+      message.info("Already added. Please wait a moment.");
+      return false;
+    }
 
     if (qty > product.stock) {
       message.error("Quantity exceeds available stock");
@@ -170,11 +186,20 @@ const ProductDetailsById = () => {
         price: product.price,
         merchantId: product.merchantId ?? product.merchant?.id,
         imageUrl: cleanImage(product.images?.[0]),
+        stock: product.stock,
         qty,
       })
     );
 
     message.success(cartItem ? "Cart updated!" : "Product added to cart!");
+    animateAddToCart({
+      sourceEl: addButtonRef.current,
+      imageUrl: cleanImage(mainImg),
+    });
+    bumpCartBadge();
+    setAddCooldown(true);
+    setTimeout(() => setAddCooldown(false), 10000);
+    return true;
   };
 
   const goToMerchant = () => {
@@ -288,19 +313,53 @@ const ProductDetailsById = () => {
                   </span>
                 </div>
               )}
-              <Image
-                src={cleanImage(mainImg)}
-                alt={product.name}
-                width="100%"
-                style={{
-                  width: "100%",
-                  maxWidth: 420,
-                  aspectRatio: "1 / 1",
-                  objectFit: "cover",
-                  borderRadius: 12,
-                }}
-                fallback={null}
-              />
+              {previewItems.length > 0 ? (
+                <Image.PreviewGroup
+                  items={previewItems}
+                  preview={{
+                    visible: previewOpen,
+                    current: previewIndex,
+                    onVisibleChange: (visible) => setPreviewOpen(visible),
+                    onChange: (current) => setPreviewIndex(current),
+                  }}
+                >
+                  <Image
+                    src={cleanImage(mainImg)}
+                    alt={product.name}
+                    width="100%"
+                    style={{
+                      width: "100%",
+                      maxWidth: 420,
+                      aspectRatio: "1 / 1",
+                      objectFit: "cover",
+                      borderRadius: 12,
+                      cursor: "zoom-in",
+                    }}
+                    onClick={() => {
+                      const idx = previewItems.findIndex(
+                        (x) => x === cleanImage(mainImg)
+                      );
+                      setPreviewIndex(idx >= 0 ? idx : 0);
+                      setPreviewOpen(true);
+                    }}
+                    fallback={null}
+                  />
+                </Image.PreviewGroup>
+              ) : (
+                <Image
+                  src={cleanImage(mainImg)}
+                  alt={product.name}
+                  width="100%"
+                  style={{
+                    width: "100%",
+                    maxWidth: 420,
+                    aspectRatio: "1 / 1",
+                    objectFit: "cover",
+                    borderRadius: 12,
+                  }}
+                  fallback={null}
+                />
+              )}
             </div>
 
             <div
@@ -331,7 +390,11 @@ const ProductDetailsById = () => {
                       border: isActive ? "2px solid #f97316" : "1px solid #eee",
                       cursor: "pointer",
                     }}
-                    onClick={() => setActiveImg(src)}
+                    onClick={() => {
+                      setActiveImg(src);
+                      const index = previewItems.findIndex((x) => x === clean);
+                      if (index >= 0) setPreviewIndex(index);
+                    }}
                     fallback={null}
                   />
                 );
@@ -364,7 +427,7 @@ const ProductDetailsById = () => {
             </Space>
 
             <Title level={4} style={{ margin: 0, color: "#f97316" }}>
-              ৳{Number(product.price).toFixed(2)}
+              ${Number(product.price).toFixed(2)}
             </Title>
 
             <div style={{ marginBottom: 8 }} className="product-description">
@@ -446,8 +509,9 @@ const ProductDetailsById = () => {
                 <Button
                   type="primary"
                   size="large"
-                  disabled={product.stock <= 0}
+                  disabled={product.stock <= 0 || addCooldown}
                   onClick={handleAdd}
+                  ref={addButtonRef}
                   style={{ flex: "1 1 220px", minWidth: 160, maxWidth: 320 }}
                 >
                   {cartItem ? "Update Cart" : "Add to Cart"}
@@ -592,7 +656,7 @@ const ProductDetailsById = () => {
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-orange-600">
-                        ৳{Number(rp.price || 0).toFixed(2)}
+                        ${Number(rp.price || 0).toFixed(2)}
                       </span>
                       <span className="text-xs text-gray-500">
                         {Number(rp.averageRating || 0) > 0

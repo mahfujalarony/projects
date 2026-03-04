@@ -434,7 +434,7 @@ export default function Orders() {
                       </span>
                     </div>
                     <div className="mt-0.5 text-xs text-gray-400">
-                      UID:{row.userId} · Qty:{row.quantity} · ৳{row.price} · {timeAgo(t)}
+                      UID:{row.userId} · Qty:{row.quantity} · ${row.price} · {timeAgo(t)}
                       {Number(userOrderCountMap[String(row.userId)] || 0) > 1 && (
                         <span className="ml-1.5 font-semibold text-blue-600">×{userOrderCountMap[String(row.userId)]}</span>
                       )}
@@ -518,7 +518,7 @@ export default function Orders() {
                             <div className="min-w-0">
                               <div className="truncate font-semibold text-gray-900">#{row.id} — {row.name}</div>
                               <div className="mt-0.5 text-xs text-gray-400">
-                                UID:{row.userId} · Qty:{row.quantity} · ৳{row.price}
+                                UID:{row.userId} · Qty:{row.quantity} · ${row.price}
                                 {Number(userOrderCountMap[String(row.userId)] || 0) > 1 && (
                                   <span className="ml-1.5 font-semibold text-blue-600">×{userOrderCountMap[String(row.userId)]}</span>
                                 )}
@@ -635,7 +635,7 @@ function OrderDetailsDrawer({ open, loading, error, data, onClose }) {
               <Row label="User ID" value={user?.id ?? order.userId} />
               <Row label="Product" value={order.name} />
               <Row label="Qty" value={order.quantity} />
-              <Row label="Price" value={`৳${order.price}`} />
+              <Row label="Price" value={`$${order.price}`} />
               <div className="pt-1">
                 <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${statusPillClasses(order.status)}`}>
                   {statusLabel(order.status)}

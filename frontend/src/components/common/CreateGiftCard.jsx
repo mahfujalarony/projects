@@ -1,5 +1,5 @@
 // src/pages/CreateGiftCard.jsx
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Form,
   Input,
@@ -10,6 +10,7 @@ import {
   message,
   Tooltip,
   Divider,
+  Modal,
 } from "antd";
 import {
   GiftOutlined,
@@ -35,14 +36,14 @@ const API = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-const PRESET_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
+const PRESET_AMOUNTS = [5, 10, 20, 50, 100, 200];
 
 function GiftCardPreview({ amount, messageText, senderName, code }) {
   const prettyAmount = useMemo(() => {
     if (amount === "" || amount === null || amount === undefined) return null;
     const n = Number(amount);
     if (!Number.isFinite(n)) return null;
-    return `৳${n.toFixed(2)}`;
+    return `$${n.toFixed(2)}`;
   }, [amount]);
 
   return (
@@ -75,7 +76,7 @@ function GiftCardPreview({ amount, messageText, senderName, code }) {
 
         <div className="mt-7">
           <p className="text-5xl sm:text-6xl font-extrabold tracking-tight text-white leading-none">
-            {prettyAmount || "৳ ---"}
+            {prettyAmount || "$ ---"}
           </p>
 
           {messageText ? (
@@ -98,7 +99,7 @@ function GiftCardPreview({ amount, messageText, senderName, code }) {
             </span>
             <span className="inline-flex items-center gap-2 rounded-2xl bg-white/5 border border-white/10 px-4 py-2">
               <span className="font-mono text-xs sm:text-sm tracking-widest text-white/90">
-                {code || "GIFT-XXXX-XXXX"}
+                {code || "GIFT-XXXX-XXXX-XXXX"}
               </span>
               <span className="h-2 w-2 rounded-full bg-emerald-400/80" />
             </span>
@@ -154,7 +155,7 @@ function CreatedSuccess({ card, onReset }) {
 
   const amountText = useMemo(() => {
     const n = Number(card.amount);
-    return Number.isFinite(n) ? `৳${n.toFixed(2)}` : `৳${card.amount}`;
+    return Number.isFinite(n) ? `$${n.toFixed(2)}` : `$${card.amount}`;
   }, [card.amount]);
 
   return (
@@ -260,6 +261,8 @@ export default function CreateGiftCard() {
   const [loading, setLoading] = useState(false);
   const [created, setCreated] = useState(null);
   const [preview, setPreview] = useState({ amount: "", message: "" });
+  const [submitCooldown, setSubmitCooldown] = useState(false);
+  const lastSubmitRef = useRef(0);
 
   const handleValuesChange = (_, allValues) => {
     setPreview({
@@ -274,15 +277,68 @@ export default function CreateGiftCard() {
   };
 
   const handleSubmit = async (values) => {
+    const now = Date.now();
+    if (loading || submitCooldown || (now - lastSubmitRef.current < 10000)) {
+      message.info("Please wait 10 seconds before creating another gift card.");
+      return;
+    }
+    if (created) {
+      message.info("This gift card is already created. Please reset to create another.");
+      return;
+    }
     if (!currentUser || !token) {
       message.error("Please login first");
       return;
     }
 
+    const amount = parseFloat(values.amount);
+    const currentBalance = Number(currentUser?.balance || 0);
+    const nextBalance = Number.isFinite(currentBalance) && Number.isFinite(amount)
+      ? currentBalance - amount
+      : currentBalance;
+
+    const confirmOk = await new Promise((resolve) => {
+      Modal.confirm({
+        title: "Confirm Gift Card",
+        okText: "Confirm",
+        cancelText: "Cancel",
+        content: (
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500">Current balance</span>
+              <span className="font-semibold text-zinc-900">${currentBalance.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500">Gift amount</span>
+              <span className="font-semibold text-zinc-900">${Number(amount || 0).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500">Remaining balance</span>
+              <span className={nextBalance < 0 ? "font-semibold text-red-600" : "font-semibold text-zinc-900"}>
+                ${Number(nextBalance || 0).toFixed(2)}
+              </span>
+            </div>
+            {nextBalance < 0 ? (
+              <p className="text-xs text-red-600">
+                Your balance looks insufficient. The request may fail.
+              </p>
+            ) : null}
+          </div>
+        ),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+
+    if (!confirmOk) return;
+
+    lastSubmitRef.current = now;
+    setSubmitCooldown(true);
+    setTimeout(() => setSubmitCooldown(false), 10000);
     setLoading(true);
     try {
       const payload = {
-        amount: parseFloat(values.amount),
+        amount,
         message: values.message || null,
         expiryDays: values.expiryDays ?? 30,
         senderId: currentUser.id,
@@ -305,6 +361,8 @@ export default function CreateGiftCard() {
     setCreated(null);
     form.resetFields();
     setPreview({ amount: "", message: "" });
+    setSubmitCooldown(false);
+    lastSubmitRef.current = 0;
   };
 
   return (
@@ -313,41 +371,43 @@ export default function CreateGiftCard() {
       <div className="absolute inset-0 -z-10 gc-soft-grid opacity-[0.28]" />
 
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-7 sm:mb-9 flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
           <div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-zinc-900">
+            <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 tracking-tight">
               Create a Gift Card
             </h1>
-            <p className="text-zinc-600 mt-2">
+            <p className="text-zinc-500 mt-2 text-sm sm:text-base font-medium">
               Create a code and share it manually (WhatsApp/Messenger/DM).
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <div className="hidden sm:inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 shadow-sm">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-sm">
+                <GiftOutlined />
+              </span>
+              <div className="leading-tight pr-2">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Gift Flow</p>
+                <p className="text-sm font-black text-zinc-900">
+                  {currentUser ? "Wallet Ready" : "Guest"}
+                </p>
+              </div>
+            </div>
+
             <Button
-              className="rounded-2xl"
+              size="large"
+              className="rounded-2xl font-semibold shadow-sm border-zinc-200"
               onClick={() => navigate("/profile/my-giftcards")}
             >
               My Cards
             </Button>
             <Button
-              className="rounded-2xl"
+              size="large"
+              className="rounded-2xl font-semibold shadow-sm border-zinc-200"
               onClick={() => navigate("/gift-card/claim")}
             >
-              Claim
+              Claim Card
             </Button>
-
-            <div className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 shadow-sm">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white">
-                <GiftOutlined />
-              </span>
-              <div className="leading-tight">
-                <p className="text-xs text-zinc-500">Signed in as</p>
-                <p className="text-sm font-semibold text-zinc-900">
-                  {currentUser?.name || "Guest"}
-                </p>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -374,13 +434,13 @@ export default function CreateGiftCard() {
               <Form.Item
                 label={
                   <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                    Amount (৳)
+                    Amount (USD)
                   </span>
                 }
                 name="amount"
                 rules={[
                   { required: true, message: "Please enter an amount" },
-                  { type: "number", min: 1, message: "Min ৳1" },
+                  { type: "number", min: 1, message: "Min $1" },
                 ]}
               >
                 <div className="space-y-3">
@@ -400,7 +460,7 @@ export default function CreateGiftCard() {
                               : "bg-white border-zinc-200 text-zinc-600 hover:border-zinc-400 hover:text-zinc-900",
                           ].join(" ")}
                         >
-                          ৳{amt}
+                          ${amt}
                         </button>
                       );
                     })}
@@ -464,6 +524,7 @@ export default function CreateGiftCard() {
                   type="primary"
                   htmlType="submit"
                   loading={loading}
+                  disabled={submitCooldown}
                   icon={<SendOutlined />}
                   size="large"
                   className="w-full h-12 text-base font-semibold rounded-2xl"

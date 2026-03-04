@@ -11,6 +11,7 @@ import {
   Empty,
   Button,
   Tooltip as AntTooltip,
+  Popover,
 } from "antd";
 import {
   ShoppingOutlined,
@@ -42,8 +43,38 @@ const initialOverview = {
   topProducts: [],
 };
 
-const moneyBDT = (n) =>
-  `BDT ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const moneyUSD = (n) =>
+  `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+const formatCompact = (value, { currency = false } = {}) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return value;
+  const formatted = Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 2,
+  }).format(n);
+  return currency ? `$${formatted}` : formatted;
+};
+
+const formatFull = (value, { currency = false } = {}) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return value;
+  const formatted = Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+  }).format(n);
+  return currency ? `$${formatted}` : formatted;
+};
+
+const compactWithPopover = (value, { currency = false } = {}) => {
+  const compact = formatCompact(value, { currency });
+  const full = formatFull(value, { currency });
+  if (String(compact) === String(full)) return compact;
+  return (
+    <Popover content={<span className="font-semibold">{full}</span>} trigger="click">
+      <span className="cursor-pointer underline decoration-dotted underline-offset-2">{compact}</span>
+    </Popover>
+  );
+};
 
 const statusTag = (s) => {
   const status = String(s || "").toLowerCase();
@@ -88,6 +119,10 @@ const MetricCard = ({ title, value, suffix, precision, icon, accent, helper }) =
           value={value}
           precision={precision}
           suffix={suffix}
+          formatter={(v) => {
+            if (suffix === "USD") return compactWithPopover(v, { currency: true });
+            return compactWithPopover(v);
+          }}
           styles={{
             content: {
               fontWeight: 800, color: accent, fontSize: 22,
@@ -233,7 +268,7 @@ const MerchantDashboardContent = () => {
     { title: "Order", dataIndex: "id", key: "id", width: 90, render: (id) => <span className="font-semibold text-slate-900">#{id}</span> },
     { title: "Product", dataIndex: "name", key: "name", ellipsis: true, render: (t) => <span className="text-slate-800">{t || "—"}</span> },
     { title: "Qty", dataIndex: "quantity", key: "quantity", align: "right", width: 70 },
-    { title: "Amount", key: "amount", align: "right", width: 140, render: (_, row) => <span className="font-medium text-slate-900">{moneyBDT(Number(row.price || 0) * Number(row.quantity || 0))}</span> },
+    { title: "Amount", key: "amount", align: "right", width: 140, render: (_, row) => <span className="font-medium text-slate-900">{moneyUSD(Number(row.price || 0) * Number(row.quantity || 0))}</span> },
     { title: "Status", dataIndex: "status", key: "status", width: 120, render: (s) => statusTag(s) },
   ], []);
 
@@ -295,15 +330,15 @@ const MerchantDashboardContent = () => {
           </div>
           <div className="rounded-xl bg-white/10 p-3">
             <div className="text-xs text-white/80">Today Sales</div>
-            <div className="text-lg font-semibold">{moneyBDT(overview.today?.sales || 0)}</div>
+            <div className="text-lg font-semibold">{compactWithPopover(overview.today?.sales || 0, { currency: true })}</div>
           </div>
           <div className="rounded-xl bg-emerald-500/20 border border-emerald-400/30 p-3">
             <div className="text-xs text-emerald-200 font-medium">Today's Earning</div>
-            <div className="text-lg font-bold text-emerald-100">{moneyBDT(overview.today?.earnings || 0)}</div>
+            <div className="text-lg font-bold text-emerald-100">{compactWithPopover(overview.today?.earnings || 0, { currency: true })}</div>
           </div>
           <div className="rounded-xl bg-white/10 p-3">
             <div className="text-xs text-white/80">Total Earnings</div>
-            <div className="text-lg font-semibold">{moneyBDT(overview.totalEarnings || 0)}</div>
+            <div className="text-lg font-semibold">{compactWithPopover(overview.totalEarnings || 0, { currency: true })}</div>
           </div>
           <div className="rounded-xl bg-white/10 p-3">
             <div className="text-xs text-white/80">Pending Orders</div>
@@ -317,19 +352,19 @@ const MerchantDashboardContent = () => {
       {/* KPI Cards Row 1 */}
       <Row gutter={[16, 16]} className="mb-6">
         <Col xs={24} sm={12} lg={5}>
-          <MetricCard title="Today's Earning" value={Number(overview.today?.earnings || 0)} precision={2} suffix="BDT" icon={<RiseOutlined />} accent="#059669" helper="Delivered today" />
+          <MetricCard title="Today's Earning" value={Number(overview.today?.earnings || 0)} precision={2} suffix="USD" icon={<RiseOutlined />} accent="#059669" helper="Delivered today" />
         </Col>
         <Col xs={24} sm={12} lg={5}>
-          <MetricCard title="Current Balance" value={Number(overview.balance || 0)} precision={2} suffix="BDT" icon={<WalletOutlined />} accent="#4f46e5" helper="Available to withdraw" />
+          <MetricCard title="Current Balance" value={Number(overview.balance || 0)} precision={2} suffix="USD" icon={<WalletOutlined />} accent="#4f46e5" helper="Available to withdraw" />
         </Col>
         <Col xs={24} sm={12} lg={5}>
-          <MetricCard title="Total Earnings" value={Number(overview.totalEarnings || 0)} precision={2} suffix="BDT" icon={<RiseOutlined />} accent="#16a34a" helper="Lifetime earnings" />
+          <MetricCard title="Total Earnings" value={Number(overview.totalEarnings || 0)} precision={2} suffix="USD" icon={<RiseOutlined />} accent="#16a34a" helper="Lifetime earnings" />
         </Col>
         <Col xs={24} sm={12} lg={5}>
           <MetricCard title="Today Orders" value={Number(overview.today?.orders || 0)} icon={<ClockCircleOutlined />} accent="#3b82f6" helper="Orders placed today" />
         </Col>
         <Col xs={24} sm={12} lg={4}>
-          <MetricCard title="Today Sales" value={Number(overview.today?.sales || 0)} precision={2} suffix="BDT" icon={<CheckCircleOutlined />} accent="#15803d" helper="Sales today" />
+          <MetricCard title="Today Sales" value={Number(overview.today?.sales || 0)} precision={2} suffix="USD" icon={<CheckCircleOutlined />} accent="#15803d" helper="Sales today" />
         </Col>
       </Row>
 
@@ -356,7 +391,7 @@ const MerchantDashboardContent = () => {
             title={
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
                 <span className="font-semibold">Last 7 Days Sales</span>
-                <span className="text-xs text-slate-500">Total: {moneyBDT(total7dSales)}</span>
+                <span className="text-xs text-slate-500">Total: {compactWithPopover(total7dSales, { currency: true })}</span>
               </div>
             }
             variant="borderless"

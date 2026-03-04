@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Button, Alert, Grid, Carousel, message } from "antd";
+import { Button, Alert, Grid, Carousel, message, Modal, Drawer } from "antd";
 import { ShoppingCartOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import Footer from "./../../components/common/Footer";
@@ -11,6 +11,8 @@ import Story from "../../components/ui/Story";
 import { API_BASE_URL } from "../../config/env";
 import { MoveRight } from "lucide-react";
 import { normalizeImageUrl } from "../../utils/imageUrl";
+import { canAddToCart } from "../../utils/cartAddGuard";
+import { animateAddToCart, bumpCartBadge } from "../../utils/cartAnimation";
 const { useBreakpoint } = Grid;
 const HOME_CACHE_TTL = 1000 * 60 * 15;
 
@@ -377,7 +379,11 @@ const HomeContent = () => {
     return fromCarouselType;
   }, [banners, offers]);
 
-  const handleAddToCartClick = (product, qty = 1) => {
+  const handleAddToCartClick = (product, qty = 1, sourceEl = null) => {
+    if (!canAddToCart(product?.id)) {
+      message.info("Already added. Please wait a moment.");
+      return false;
+    }
     fetch(`${API_BASE_URL}/api/track/add-to-cart/${product.id}`, {
       method: "POST",
     }).catch(() => {});
@@ -389,10 +395,17 @@ const HomeContent = () => {
         price: parseFloat(product.price),
         merchantId: product.merchantId,
         imageUrl: product.images?.[0],
+        stock: product.stock,
         qty,
       })
     );
     message.success(`${qty} x ${product.name} added to cart`);
+    animateAddToCart({
+      sourceEl,
+      imageUrl: product.images?.[0],
+    });
+    bumpCartBadge();
+    return true;
   };
 
   const handleProductCardOpen = (product) => {
@@ -570,7 +583,7 @@ const HomeContent = () => {
                     {product.name}
                   </h3>
                   <div className="mt-auto flex items-center justify-between gap-1">
-                    <span className="text-base font-bold text-gray-900">৳{Number(product.price || 0).toLocaleString()}</span>
+                    <span className="text-base font-bold text-gray-900">${Number(product.price || 0).toLocaleString()}</span>
                     <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">
                       {Number(product.trending?.soldQty || 0) > 0 ? `${product.trending.soldQty} sold` : "Trending"}
                     </span>
@@ -581,7 +594,7 @@ const HomeContent = () => {
                       type="primary"
                       block
                       icon={<ShoppingCartOutlined />}
-                      onClick={() => handleAddToCartClick(product, 1)}
+                      onClick={(e) => handleAddToCartClick(product, 1, e.currentTarget)}
                       className="!bg-gradient-to-r !from-amber-500 !to-orange-500 border-none shadow-none"
                     >
                       Add
@@ -640,7 +653,7 @@ const HomeContent = () => {
                     {product.name}
                   </h3>
                   <div className="mt-auto flex items-center justify-between gap-1">
-                    <span className="text-base font-bold text-gray-900">৳{Number(product.price || 0).toLocaleString()}</span>
+                    <span className="text-base font-bold text-gray-900">${Number(product.price || 0).toLocaleString()}</span>
                     {product.averageRating > 0 ? (
                       <span className="text-[10px] text-amber-500 font-semibold">★ {Number(product.averageRating).toFixed(1)}</span>
                     ) : null}
@@ -651,7 +664,7 @@ const HomeContent = () => {
                       type="primary"
                       block
                       icon={<ShoppingCartOutlined />}
-                      onClick={() => handleAddToCartClick(product, 1)}
+                      onClick={(e) => handleAddToCartClick(product, 1, e.currentTarget)}
                       className="!bg-gradient-to-r !from-emerald-500 !to-teal-500 border-none shadow-none"
                     >
                       Add

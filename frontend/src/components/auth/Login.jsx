@@ -66,6 +66,15 @@ const Login = () => {
 
       const json = await res.json();
 
+      if (res.status === 429) {
+        const msg =
+          json?.message ||
+          "Too many invalid attempts. Please try again after 2 hours.";
+        setError(msg);
+        message.error(msg);
+        return;
+      }
+
       if (!res.ok || !json?.success) {
         throw new Error(json?.message || "Login failed");
       }
@@ -178,6 +187,7 @@ const Login = () => {
                          focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-offset-1 outline-none"
             />
           </div>
+
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 

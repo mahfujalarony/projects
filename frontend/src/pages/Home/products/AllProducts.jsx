@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
-import { useNavigationType, useSearchParams } from "react-router-dom";
+import { useNavigationType, useSearchParams, useLocation } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
 import { useDispatch } from "react-redux";
@@ -7,13 +7,15 @@ import { addToCart } from "../../../redux/cartSlice";
 import ProductCard from "../../../components/common/ProductCart";
 import { message, Skeleton } from "antd";
 import  { API_BASE_URL } from "../../../config/env";
+import { canAddToCart } from "../../../utils/cartAddGuard";
 
 const API_BASE = `${API_BASE_URL}`;
 const getItemsPerPage = () => (window.innerWidth < 768 ? 40 : 60);
 
 const fetchProducts = async ({ pageParam = 1, queryKey }) => {
-  const [, sort, itemsPerPage, snapshotAt] = queryKey;
-  const url = `${API_BASE}/api/products?page=${pageParam}&limit=${Number(itemsPerPage) || 60}&sort=${encodeURIComponent(sort)}&mode=all${snapshotAt ? `&snapshotAt=${snapshotAt}` : ""}`;
+  const [, sort, mode, itemsPerPage, snapshotAt] = queryKey;
+  const safeMode = mode === "all" ? "all" : "unique";
+  const url = `${API_BASE}/api/products?page=${pageParam}&limit=${Number(itemsPerPage) || 60}&sort=${encodeURIComponent(sort)}&mode=${safeMode}${snapshotAt ? `&snapshotAt=${snapshotAt}` : ""}`;
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -32,20 +34,66 @@ const fetchProducts = async ({ pageParam = 1, queryKey }) => {
 
 const AllProducts = () => {
   const navigationType = useNavigationType();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { ref, inView } = useInView();
   const dispatch = useDispatch();
-  const [sort, setSort] = useState(() => searchParams.get("sort") || "smart");
-  // frozen at first page load so all subsequent pages use the same ranked snapshot
-  const snapshotAtRef = useRef(Date.now());
-  const [snapshotAt] = useState(() => snapshotAtRef.current);
+  const initialSort = searchParams.get("sort") || "smart";
+  const [sort, setSort] = useState(() => initialSort);
+
+  // Storage keys
+  const getSnapshotKey = (s) => `products-snapshot:${s}`;
+  const getItemsPerPageKey = () => "products-itemsPerPage";
+  const getScrollKey = () => `scroll:${location.pathname}${location.search}`;
+  const getPagesKey = (s) => `products-pages:${s}`;
+
+  // Always try to restore from sessionStorage first - only create new if not exists
+  const [snapshotAt, setSnapshotAt] = useState(() => {
+    const saved = sessionStorage.getItem(getSnapshotKey(initialSort));
+    if (saved) {
+      return Number(saved);
+    }
+    const ts = Date.now();
+    sessionStorage.setItem(getSnapshotKey(initialSort), String(ts));
+    return ts;
+  });
+
+  // Persist itemsPerPage - always restore if exists
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    const saved = sessionStorage.getItem(getItemsPerPageKey());
+    if (saved) return Number(saved);
+    const val = getItemsPerPage();
+    sessionStorage.setItem(getItemsPerPageKey(), String(val));
+    return val;
+  });
+
+  // Get saved pages count for restoration
+  const getSavedPagesCount = () => {
+    const saved = sessionStorage.getItem(getPagesKey(sort));
+    return saved ? Number(saved) : 1;
+  };
+
+  const scrollKeyRef = useRef(getScrollKey());
+  const scrollRestoreDoneRef = useRef(false);
+  const isBackNavRef = useRef(navigationType === "POP");
+  const [pagesRestored, setPagesRestored] = useState(!isBackNavRef.current);
 
   // reset snapshot when sort changes so we get a fresh ranking
   const prevSortRef = useRef(sort);
-  if (prevSortRef.current !== sort) {
-    prevSortRef.current = sort;
-    snapshotAtRef.current = Date.now();
-  }
+  useEffect(() => {
+    if (prevSortRef.current !== sort) {
+      prevSortRef.current = sort;
+      const newTs = Date.now();
+      sessionStorage.setItem(getSnapshotKey(sort), String(newTs));
+      setSnapshotAt(newTs);
+      // Reset scroll restoration for new sort
+      scrollRestoreDoneRef.current = false;
+      isBackNavRef.current = false;
+      setPagesRestored(true);
+      // Clear saved pages for new sort
+      sessionStorage.removeItem(getPagesKey(sort));
+    }
+  }, [sort]);
 
   // sync sort when URL changes (e.g. navigating from home page "View All" links)
   useEffect(() => {
@@ -53,7 +101,6 @@ const AllProducts = () => {
     if (urlSort !== sort) setSort(urlSort);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
-  const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage());
 
   // keep URL in sync when sort changes — always store sort in URL
   useEffect(() => {
@@ -66,33 +113,141 @@ const AllProducts = () => {
   }, [sort]);
 
   useEffect(() => {
-    const onResize = () => setItemsPerPage(getItemsPerPage());
+    const onResize = () => {
+      const val = getItemsPerPage();
+      setItemsPerPage(val);
+      sessionStorage.setItem(getItemsPerPageKey(), String(val));
+    };
     window.addEventListener("resize", onResize, { passive: true });
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, status, error } =
     useInfiniteQuery({
-      queryKey: ["public-products-infinite", sort, "all", itemsPerPage, snapshotAtRef.current],
+      queryKey: ["public-products-infinite", sort, "all", itemsPerPage, snapshotAt],
       queryFn: fetchProducts,
       initialPageParam: 1,
       getNextPageParam: (lastPage) => lastPage.nextPage,
       staleTime: 1000 * 60 * 5,
       gcTime: 1000 * 60 * 30,
-      refetchOnMount: true,
+      refetchOnMount: false,
       refetchOnWindowFocus: false,
       placeholderData: (previousData) => previousData,
     });
 
+  const currentPagesCount = data?.pages?.length || 0;
+
+  const allProducts = useMemo(() => {
+    const map = new Map();
+    for (const group of data?.pages || []) {
+      for (const product of group.data || []) {
+        if (product?.id && !map.has(product.id)) map.set(product.id, product);
+      }
+    }
+    return Array.from(map.values());
+  }, [data]);
+
+  // Save pages count whenever it changes (for scroll restoration on back nav)
   useEffect(() => {
-    if (navigationType !== "POP") window.scrollTo(0, 0);
-  }, [navigationType]);
+    if (currentPagesCount > 0 && !isBackNavRef.current) {
+      sessionStorage.setItem(getPagesKey(sort), String(currentPagesCount));
+    }
+  }, [currentPagesCount, sort]);
+
+  // On back navigation, restore all pages that were previously loaded
+  useEffect(() => {
+    if (!isBackNavRef.current || pagesRestored) return;
+    if (status !== "success") return;
+    if (isFetchingNextPage) return;
+
+    const savedPagesCount = getSavedPagesCount();
+    
+    if (currentPagesCount < savedPagesCount && hasNextPage) {
+      // Need to load more pages to restore state
+      fetchNextPage();
+    } else {
+      // All pages restored
+      setPagesRestored(true);
+    }
+  }, [status, currentPagesCount, hasNextPage, isFetchingNextPage, fetchNextPage, pagesRestored]);
+
+  // Scroll restoration - must happen AFTER all pages are restored
+  useEffect(() => {
+    const key = getScrollKey();
+    scrollKeyRef.current = key;
+
+    if (status !== "success" || allProducts.length === 0) return;
+
+    // For back navigation, wait until pages are restored
+    if (isBackNavRef.current && !pagesRestored) return;
+
+    // Check if we should restore scroll (back navigation)
+    const savedScroll = sessionStorage.getItem(key);
+    const shouldRestore = isBackNavRef.current && savedScroll && !scrollRestoreDoneRef.current;
+
+    if (shouldRestore) {
+      const y = Number(savedScroll);
+      if (Number.isFinite(y) && y > 0) {
+        // Smart scroll restoration - retry until we reach target or give up
+        let attempts = 0;
+        const maxAttempts = 20;
+        
+        const tryScroll = () => {
+          attempts++;
+          window.scrollTo({ top: y, behavior: "instant" });
+          
+          // Check if we reached near the target (within 100px tolerance)
+          const currentY = window.scrollY;
+          const reachedTarget = Math.abs(currentY - y) < 100;
+          
+          if (!reachedTarget && attempts < maxAttempts) {
+            setTimeout(tryScroll, 80);
+          }
+        };
+        
+        requestAnimationFrame(tryScroll);
+        scrollRestoreDoneRef.current = true;
+        return;
+      }
+    }
+
+    // For non-back navigation, scroll to top (only once)
+    if (!isBackNavRef.current && !scrollRestoreDoneRef.current) {
+      window.scrollTo(0, 0);
+      scrollRestoreDoneRef.current = true;
+    }
+  }, [status, allProducts.length, location.pathname, location.search, pagesRestored]);
 
   useEffect(() => {
+    let t = null;
+    const onScroll = () => {
+      if (t) return;
+      t = window.setTimeout(() => {
+        t = null;
+        const key = scrollKeyRef.current;
+        if (key) sessionStorage.setItem(key, String(window.scrollY || 0));
+      }, 120);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      const key = scrollKeyRef.current;
+      if (key) sessionStorage.setItem(key, String(window.scrollY || 0));
+      if (t) window.clearTimeout(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Only trigger infinite scroll for normal navigation, not during back nav page restoration
+    if (isBackNavRef.current && !pagesRestored) return;
     if (inView && hasNextPage && !isFetchingNextPage) fetchNextPage();
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, pagesRestored]);
 
   const handleAddToCartClick = (product, qty) => {
+    if (!canAddToCart(product?.id)) {
+      message.info("Already added. Please wait a moment.");
+      return false;
+    }
     const numericQty = Number(qty || 1);
       fetch(`${API_BASE}/api/track/add-to-cart/${product.id}`, {
     method: "POST",
@@ -105,11 +260,13 @@ const AllProducts = () => {
         price: product.price,
         imageUrl: product.images?.[0],
         merchantId: product.merchantId,
+        stock: product.stock,
         qty: numericQty,
       })
     );
 
     message.success(`${numericQty} ${product.name} added to cart`);
+    return true;
   };
 
   if (status === "pending") {
@@ -141,19 +298,6 @@ const AllProducts = () => {
   }
 
   const totalItems = data?.pages?.[0]?.total || 0;
-
-  // deduplicate across pages — if a product shifts rank between page requests
-  // the same id could appear twice; the Map keeps only the first occurrence
-  const allProducts = useMemo(() => {
-    const map = new Map();
-    for (const group of data?.pages || []) {
-      for (const product of group.data || []) {
-        if (product?.id && !map.has(product.id)) map.set(product.id, product);
-      }
-    }
-    return Array.from(map.values());
-  }, [data]);
-
   return (
     <div className="container mx-auto px-2 py-6 pb-20">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4 px-1">

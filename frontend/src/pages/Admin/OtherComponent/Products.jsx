@@ -392,7 +392,7 @@ const AdminProducts = () => {
       dataIndex: "price",
       key: "price",
       width: 95,
-      render: (v) => `৳${Number(v || 0).toLocaleString()}`,
+      render: (v) => `$${Number(v || 0).toLocaleString()}`,
       sorter: true,
     },
     {

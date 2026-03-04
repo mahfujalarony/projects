@@ -144,7 +144,7 @@ const Product = () => {
                 </div>
                 {product.price && (
                   <div className="text-sm font-semibold text-emerald-700">
-                    ৳ {product.price}
+                    $ {product.price}
                   </div>
                 )}
               </div>

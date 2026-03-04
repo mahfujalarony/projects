@@ -8,6 +8,7 @@ import {
   Empty,
   Spin,
   Tooltip,
+  Popover,
   Badge,
   Button,
   message,
@@ -30,6 +31,7 @@ import axios from "axios";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const API = axios.create({
   baseURL: `${API_BASE_URL}/api`,
@@ -44,7 +46,7 @@ const STATUS_CONFIG = {
 };
 
 // Premium stat card
-function StatCard({ icon, title, value, prefix = "৳", highlight = false }) {
+function StatCard({ icon, title, value, prefix = "$", highlight = false }) {
   const displayValue =
     typeof value === "number"
       ? prefix
@@ -125,7 +127,8 @@ function StatCard({ icon, title, value, prefix = "৳", highlight = false }) {
 // Expandable row for extra details (message + dates)
 function ExpandedRow({ record }) {
   return (
-    <div className="px-5 py-4 bg-zinc-50 rounded-2xl space-y-3 text-sm text-zinc-700 border border-zinc-200/60 shadow-inner">
+    <div className="px-5 py-4 bg-zinc-50 rounded-2xl space-y-4 text-sm text-zinc-700 border border-zinc-200/60 shadow-inner">
+      <GiftCardVisual record={record} compact />
       {record.message && (
         <div className="flex items-start gap-3 bg-white p-3 rounded-xl border border-zinc-100">
           <MessageOutlined className="text-amber-500 mt-1 shrink-0 text-base" />
@@ -154,6 +157,92 @@ function ExpandedRow({ record }) {
   );
 }
 
+function GiftCardVisual({ record, compact = false }) {
+  const status = STATUS_CONFIG[record.status] || STATUS_CONFIG.active;
+  const amount = Number(record.amount || 0);
+  const fromName = record.creator?.name || record.creatorName || "Gift Sender";
+  const toLabel = record.recipientEmail || (record.claimer?.email ? record.claimer.email : "Manual share");
+
+  return (
+    <div className={`relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl ${compact ? "p-4" : "p-6"}`}>
+      <div className="absolute inset-0 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950" />
+      <div className="absolute inset-0 gc-diagonal-pattern opacity-[0.12]" />
+      <div className="absolute -top-20 -right-20 h-56 w-56 rounded-full bg-fuchsia-500/20 blur-3xl" />
+      <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-amber-500/15 blur-3xl" />
+
+      <div className="relative">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-white/5 border border-white/10">
+              <GiftOutlined className="text-white/80" />
+            </span>
+            <div className="leading-tight">
+              <p className="text-xs uppercase tracking-[0.22em] text-white/50">
+                GiftFlow
+              </p>
+              <p className="text-sm font-semibold text-white/90">
+                Digital Gift Card
+              </p>
+            </div>
+          </div>
+
+          <span className="inline-flex items-center rounded-full bg-white/5 border border-white/10 px-3 py-1 text-xs text-white/70">
+            {status.label}
+          </span>
+        </div>
+
+        <div className="mt-6">
+          <p className={`${compact ? "text-4xl" : "text-5xl"} font-extrabold tracking-tight text-white leading-none`}>
+            ${amount.toFixed(2)}
+          </p>
+
+          {record.message ? (
+            <div className="mt-4 rounded-2xl bg-white/5 border border-white/10 px-4 py-3">
+              <p className="text-sm text-white/70 italic leading-relaxed">
+                “{record.message}”
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-white/45">
+              No message included.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-5 flex items-end justify-between gap-4 flex-wrap">
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-[0.18em] text-white/40">
+              Code
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-2xl bg-white/5 border border-white/10 px-4 py-2">
+              <span className="font-mono text-xs sm:text-sm tracking-widest text-white/90">
+                {record.code}
+              </span>
+              <span className="h-2 w-2 rounded-full bg-emerald-400/80" />
+            </span>
+          </div>
+
+          <div className="text-right">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">
+              From
+            </p>
+            <p className="text-sm font-medium text-white/80">
+              {fromName}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between text-xs text-white/50">
+          <span>To: {toLabel}</span>
+          <span>{new Date(record.createdAt).toLocaleDateString("en-GB")}</span>
+        </div>
+
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.10),transparent_45%)]" />
+      </div>
+    </div>
+  );
+}
+
 export default function MyGiftCards() {
   const currentUser = useSelector((state) => state.auth.user);
   const token = useSelector((state) => state.auth.token) || "";
@@ -165,10 +254,18 @@ export default function MyGiftCards() {
   const [sentCards, setSentCards] = useState([]);
   const [receivedCards, setReceivedCards] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(false);
 
   // scroll to top on mount
   useEffect(() => {
     window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => setIsMobileView(window.innerWidth < 768);
+    onResize();
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   // redeem link builder
@@ -255,7 +352,7 @@ export default function MyGiftCards() {
       sorter: (a, b) => parseFloat(a.amount) - parseFloat(b.amount),
       render: (amt) => (
         <span className="font-black text-zinc-900 text-base">
-          ৳{parseFloat(amt).toFixed(2)}
+          ${parseFloat(amt).toFixed(2)}
         </span>
       ),
     },
@@ -357,7 +454,38 @@ export default function MyGiftCards() {
         </span>
       ),
     },
-    ...baseColumns.slice(1),
+    ...baseColumns.slice(1, 3),
+    {
+      title: "Claimed By",
+      key: "claimedBy",
+      render: (_, record) => {
+        if (record.status !== "claimed" || !record.claimer) {
+          return <span className="text-xs text-zinc-400">—</span>;
+        }
+        return (
+          <Popover
+            title="Claimed By"
+            content={
+              <div className="text-xs space-y-1">
+                <div className="font-semibold text-zinc-900">{record.claimer.name}</div>
+                <div className="text-zinc-500">{record.claimer.email}</div>
+                {record.claimedAt && (
+                  <div className="text-zinc-500">
+                    Claimed: {new Date(record.claimedAt).toLocaleDateString("en-GB")}
+                  </div>
+                )}
+              </div>
+            }
+            trigger="click"
+          >
+            <Button size="small" type="link" className="px-0 font-semibold">
+              View
+            </Button>
+          </Popover>
+        );
+      },
+    },
+    ...baseColumns.slice(3),
     shareColumn,
   ];
 
@@ -368,8 +496,18 @@ export default function MyGiftCards() {
       title: "From",
       key: "creator",
       render: (_, record) => (
-        <span className="text-zinc-700 text-sm font-medium flex items-center gap-2 truncate max-w-[200px]">
-          <UserOutlined className="shrink-0 text-zinc-400" />
+        <span className="text-zinc-700 text-sm font-semibold flex items-center gap-2 truncate max-w-[240px]">
+          {record.creator?.imageUrl ? (
+            <img
+              src={normalizeImageUrl(record.creator.imageUrl)}
+              alt={record.creator?.name || "Sender"}
+              className="h-6 w-6 rounded-full object-cover border border-zinc-200"
+            />
+          ) : (
+            <span className="h-6 w-6 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center text-[10px] text-zinc-500">
+              {String(record.creator?.name || record.creatorName || "G").slice(0, 1).toUpperCase()}
+            </span>
+          )}
           {record.creator?.name || record.creatorName || "—"}
         </span>
       ),
@@ -387,7 +525,84 @@ export default function MyGiftCards() {
           <Badge count={sentCards.length} color="#18181b" size="small" />
         </span>
       ),
-      children: (
+      children: isMobileView ? (
+        <div className="space-y-3 p-2">
+          {sentCards.length === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={<span className="text-zinc-500">You haven't sent any gift cards yet</span>}
+            />
+          ) : (
+            sentCards.map((record) => (
+              <div key={record.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm space-y-3">
+                <GiftCardVisual record={record} />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-zinc-400">Code</p>
+                    <p className="font-mono text-sm font-bold tracking-widest text-zinc-900">
+                      {record.code}
+                    </p>
+                  </div>
+                  <Tag color={(STATUS_CONFIG[record.status] || STATUS_CONFIG.active).color} className="m-0">
+                    {(STATUS_CONFIG[record.status] || STATUS_CONFIG.active).label}
+                  </Tag>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <p className="text-xs text-zinc-500">Amount</p>
+                  <p className="text-base font-black text-zinc-900">
+                    ${parseFloat(record.amount).toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="mt-2 text-xs text-zinc-500">
+                  {new Date(record.createdAt).toLocaleDateString("en-GB")}
+                </div>
+
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="small"
+                    className="rounded-lg border-zinc-200"
+                    onClick={() => copyToClipboard(record.code)}
+                  >
+                    Copy Code
+                  </Button>
+                  {record.status === "active" ? (
+                    <Button
+                      size="small"
+                      className="rounded-lg border-zinc-200"
+                      onClick={() => copyToClipboard(buildRedeemUrl(record.code))}
+                    >
+                      Copy Link
+                    </Button>
+                  ) : null}
+                  {record.status === "claimed" && record.claimer ? (
+                    <Popover
+                      title="Claimed By"
+                      content={
+                        <div className="text-xs space-y-1">
+                          <div className="font-semibold text-zinc-900">{record.claimer.name}</div>
+                          <div className="text-zinc-500">{record.claimer.email}</div>
+                          {record.claimedAt && (
+                            <div className="text-zinc-500">
+                              Claimed: {new Date(record.claimedAt).toLocaleDateString("en-GB")}
+                            </div>
+                          )}
+                        </div>
+                      }
+                      trigger="click"
+                    >
+                      <Button size="small" type="link" className="px-0 font-semibold">
+                        Claimed By
+                      </Button>
+                    </Popover>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
         <div className="p-1">
           <Table
             columns={sentColumns}
@@ -423,7 +638,68 @@ export default function MyGiftCards() {
           <Badge count={receivedCards.length} color="#c9a840" size="small" />
         </span>
       ),
-      children: (
+      children: isMobileView ? (
+        <div className="space-y-3 p-2">
+          {receivedCards.length === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={<span className="text-zinc-500">No gift cards received yet</span>}
+            />
+          ) : (
+            receivedCards.map((record) => (
+              <div key={record.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm space-y-3">
+                <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  {record.creator?.imageUrl ? (
+                    <img
+                      src={normalizeImageUrl(record.creator.imageUrl)}
+                      alt={record.creator?.name || "Sender"}
+                      className="h-9 w-9 rounded-full object-cover border border-zinc-200"
+                    />
+                  ) : (
+                    <span className="h-9 w-9 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center text-xs text-zinc-500">
+                      {String(record.creator?.name || record.creatorName || "G").slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-wider text-zinc-400">From</p>
+                    <p className="text-sm font-semibold text-zinc-900 truncate">
+                      {record.creator?.name || record.creatorName || "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <GiftCardVisual record={record} />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-zinc-400">Code</p>
+                    <p className="font-mono text-sm font-bold tracking-widest text-zinc-900">
+                      {record.code}
+                    </p>
+                  </div>
+                  <Tag color={(STATUS_CONFIG[record.status] || STATUS_CONFIG.active).color} className="m-0">
+                    {(STATUS_CONFIG[record.status] || STATUS_CONFIG.active).label}
+                  </Tag>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <p className="text-xs text-zinc-500">Amount</p>
+                  <p className="text-base font-black text-zinc-900">
+                    ${parseFloat(record.amount).toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="mt-2 text-xs text-zinc-500">
+                  {record.creator?.name || record.creatorName || "—"}
+                </div>
+
+                <div className="mt-2 text-xs text-zinc-500">
+                  {new Date(record.createdAt).toLocaleDateString("en-GB")}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
         <div className="p-1">
           <Table
             columns={receivedColumns}
@@ -534,13 +810,13 @@ export default function MyGiftCards() {
               icon={<InboxOutlined className="text-amber-500" />}
               title="Total Sent"
               value={totalSentAmount}
-              prefix="৳"
+              prefix="$"
             />
             <StatCard
               icon={<WalletOutlined />}
               title="Current Balance"
               value={parseFloat(currentUser?.balance || 0)}
-              prefix="৳"
+              prefix="$"
               highlight
             />
           </div>
@@ -561,7 +837,7 @@ export default function MyGiftCards() {
             <div className="mt-6 flex justify-end items-center gap-2 text-sm text-zinc-500 font-medium bg-zinc-100/50 py-3 px-5 rounded-2xl w-max ml-auto border border-zinc-200/60">
               Total received & claimed:
               <strong className="text-zinc-900 text-base font-black tracking-tight">
-                ৳{totalReceivedAmount.toFixed(2)}
+                ${totalReceivedAmount.toFixed(2)}
               </strong>
             </div>
           )}

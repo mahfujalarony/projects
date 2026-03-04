@@ -1,8 +1,12 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { animateAddToCart, bumpCartBadge } from "../../utils/cartAnimation";
 
 const ProductCard = ({ product, onAddToCart, onProductClick }) => {
   const [qty, setQty] = useState(1);
+  const [justAdded, setJustAdded] = useState(false);
+  const [cooldown, setCooldown] = useState(false);
+  const buttonRef = useRef(null);
 
   const handleQtyChange = (e) => {
     const value = parseInt(e.target.value);
@@ -53,7 +57,7 @@ const ProductCard = ({ product, onAddToCart, onProductClick }) => {
         <div className="mt-auto">
           <div className="flex flex-wrap items-baseline justify-between mb-2">
             <p className="text-sm font-bold text-gray-900">
-              ৳{product.price}
+              ${product.price}
             </p>
 
             <div className="flex items-center">
@@ -74,10 +78,28 @@ const ProductCard = ({ product, onAddToCart, onProductClick }) => {
               className="w-8 md:w-10 text-center rounded border border-gray-200 text-[10px] h-7 focus:outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
             <button
-              onClick={() => onAddToCart(product, qty)}
-              className="flex-grow bg-blue-600 hover:bg-blue-700 text-white text-[10px] md:text-xs font-medium h-7 rounded flex items-center justify-center transition-colors active:scale-95"
+              ref={buttonRef}
+              onClick={() => {
+                if (cooldown) return;
+                const ok = typeof onAddToCart === "function" ? onAddToCart(product, qty) : false;
+                if (ok !== false) {
+                  animateAddToCart({
+                    sourceEl: buttonRef.current,
+                    imageUrl: product.images?.[0],
+                  });
+                  bumpCartBadge();
+                  setJustAdded(true);
+                  window.setTimeout(() => setJustAdded(false), 900);
+                  setCooldown(true);
+                  window.setTimeout(() => setCooldown(false), 10000);
+                }
+              }}
+              disabled={cooldown}
+              className={`flex-grow text-white text-[10px] md:text-xs font-medium h-7 rounded flex items-center justify-center transition-colors active:scale-95 ${
+                cooldown ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+              }`}
             >
-              ADD
+              {justAdded ? "ADDED" : "ADD"}
             </button>
           </div>
         </div>

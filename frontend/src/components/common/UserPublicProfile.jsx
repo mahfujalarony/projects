@@ -103,7 +103,7 @@ const UserPublicProfile = () => {
             <Statistic title="Cancelled" value={stats?.cancelledOrders || 0} />
           </Col>
           <Col xs={12} md={6}>
-            <Statistic title="Est. Spent" prefix="৳" value={Number(stats?.totalSpent || 0)} precision={2} />
+            <Statistic title="Est. Spent" prefix="$" value={Number(stats?.totalSpent || 0)} precision={2} />
           </Col>
         </Row>
       </Card>
@@ -129,7 +129,7 @@ const UserPublicProfile = () => {
                     <Text type="secondary">Order #{item.id}</Text>
                     <br />
                     <Text type="secondary">
-                      Qty: {item.quantity} | Price: ৳{Number(item.price || 0).toFixed(2)} | Date:{" "}
+                      Qty: {item.quantity} | Price: ${Number(item.price || 0).toFixed(2)} | Date:{" "}
                       {item.createdAt ? new Date(item.createdAt).toLocaleString() : "N/A"}
                     </Text>
                   </div>

@@ -8,6 +8,7 @@ import ProductCard from "./ProductCart";
 import { useDispatch } from "react-redux";
 import { addToCart } from "../../redux/cartSlice";
 import { API_BASE_URL } from "../../config/env";
+import { canAddToCart } from "../../utils/cartAddGuard";
 
 const { Title, Text, Paragraph } = Typography;
 const API_BASE = API_BASE_URL;
@@ -134,6 +135,10 @@ const Saller = () => {
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleAddToCart = (product, qty) => {
+    if (!canAddToCart(product?.id)) {
+      message.info("Already added. Please wait a moment.");
+      return false;
+    }
     dispatch(
       addToCart({
         id: product.id,
@@ -141,10 +146,12 @@ const Saller = () => {
         price: parseFloat(product.price),
         merchantId: product.merchantId,
         imageUrl: product.images?.[0],
+        stock: product.stock,
         qty,
       })
     );
     message.success(`${qty} x ${product.name} added to cart`);
+    return true;
   };
 
   const merchant = data?.pages?.[0]?.merchant || stableMerchantRef.current;

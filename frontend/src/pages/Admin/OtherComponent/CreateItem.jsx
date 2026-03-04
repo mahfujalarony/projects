@@ -272,9 +272,9 @@ const CreateItem = () => {
   const moneyFormatter = (v) =>
     v === null || v === undefined || v === ""
       ? ""
-      : `৳ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      : `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-  const moneyParser = (v) => (v ? v.replace(/[৳,\s]/g, "") : "");
+  const moneyParser = (v) => (v ? v.replace(/[$,\s]/g, "") : "");
 
   /* ─────────────────────────────────────────
      Quill config (NO image button)

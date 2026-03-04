@@ -281,10 +281,10 @@ const MerchantPickProducts = () => {
         <div>
           <p>Are you sure you want to add this to your store?</p>
           <div style={{ marginTop: 10 }}>
-            <div>Current Balance: <b>৳{balance.toLocaleString()}</b></div>
-            <div>Total Cost: <b style={{ color: "red" }}>৳{cost.toLocaleString()}</b></div>
+            <div>Current Balance: <b>${balance.toLocaleString()}</b></div>
+            <div>Total Cost: <b style={{ color: "red" }}>${cost.toLocaleString()}</b></div>
             <div style={{ borderTop: "1px solid #eee", marginTop: 5, paddingTop: 5 }}>
-              Remaining Balance: <b style={{ color: "green" }}>৳{remaining.toLocaleString()}</b>
+              Remaining Balance: <b style={{ color: "green" }}>${remaining.toLocaleString()}</b>
             </div>
           </div>
         </div>
@@ -382,7 +382,7 @@ const MerchantPickProducts = () => {
                 <Spin size="small" />
               ) : (
                 <Tag color="green" style={{ marginRight: 0 }}>
-                  {"\u09F3"}{Number(balance || 0).toLocaleString()}
+                  ${Number(balance || 0).toLocaleString()}
                 </Tag>
               )}
             </div>
@@ -544,7 +544,7 @@ const MerchantPickProducts = () => {
                   </div>
 
                   <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#444" }}>
-                    <span style={{ fontWeight: 800 }}>৳{Number(p.price || 0).toLocaleString()}</span>
+                    <span style={{ fontWeight: 800 }}>${Number(p.price || 0).toLocaleString()}</span>
                     <span>Stock: {p.stock ?? 0}</span>
                   </div>
 
@@ -576,7 +576,7 @@ const MerchantPickProducts = () => {
                   </div>
 
                   <div style={{ marginTop: 6, fontSize: 11, color: "#777" }}>
-                    Cost: ৳{(Number(p.price || 0) * selectedQty).toLocaleString()}
+                    Cost: ${(Number(p.price || 0) * selectedQty).toLocaleString()}
                   </div>
                 </Card>
               );
@@ -638,7 +638,7 @@ const MerchantPickProducts = () => {
                 <span style={{ color: "#888" }}>Subcategory:</span> <strong>{viewProduct.subCategory || "N/A"}</strong>
               </div>
               <div style={{ background: "#fff", border: "1px solid #eee", padding: 8, borderRadius: 6 }}>
-                <span style={{ color: "#888" }}>Price:</span> <strong>৳{Number(viewProduct.price || 0).toLocaleString()}</strong>
+                <span style={{ color: "#888" }}>Price:</span> <strong>${Number(viewProduct.price || 0).toLocaleString()}</strong>
               </div>
               <div style={{ background: "#fff", border: "1px solid #eee", padding: 8, borderRadius: 6 }}>
                 <span style={{ color: "#888" }}>Stock:</span> <strong>{viewProduct.stock}</strong>

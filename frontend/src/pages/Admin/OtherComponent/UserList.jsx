@@ -497,7 +497,7 @@ export default function UserList() {
           </Form.Item>
 
           <Form.Item
-            label="Balance (৳)"
+            label="Balance ($)"
             name="balance"
             rules={[{ required: true, message: "Balance is required" }]}
             help="Admin can directly set the user's balance."

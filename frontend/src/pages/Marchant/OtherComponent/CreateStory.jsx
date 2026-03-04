@@ -160,7 +160,7 @@ export default function CreateStory() {
     if (!token) return message.info("Login required");
     if (!fileList.length) return message.error("Select at least 1 image");
     if (Number(storyFee || 0) > Number(merchantBalance || 0)) {
-      return message.error(`Insufficient balance. Story fee is BDT ${Number(storyFee || 0)}`);
+      return message.error(`Insufficient balance. Story fee is $${Number(storyFee || 0)}`);
     }
 
     try {
@@ -256,10 +256,10 @@ export default function CreateStory() {
                 Upload images to 5001, then create a timed story for your shop.
               </Text>
               <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Tag color="blue">Story Fee: ৳{Number(storyFee || 0).toLocaleString()}</Tag>
+                <Tag color="blue">Story Fee: ${Number(storyFee || 0).toLocaleString()}</Tag>
                 <Tag color="purple">Duration: {durationLabel}</Tag>
                 <Tag color={Number(merchantBalance || 0) >= Number(storyFee || 0) ? "green" : "red"}>
-                  Balance: ৳{Number(merchantBalance || 0).toLocaleString()}
+                  Balance: ${Number(merchantBalance || 0).toLocaleString()}
                 </Tag>
               </div>
             </div>

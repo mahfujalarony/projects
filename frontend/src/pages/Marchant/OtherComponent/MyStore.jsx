@@ -9,7 +9,7 @@ import  { API_BASE_URL } from "../../../config/env";
 
 const API_BASE = `${API_BASE_URL}`;
 
-const money = (v) => {
+const moneyUSD = (v) => {
   if (v === null || v === undefined || v === "") return "";
   const n = Number(v);
   if (Number.isNaN(n)) return String(v);
@@ -335,7 +335,7 @@ export default function MyStore() {
 
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <div className="text-sm font-semibold text-gray-900 whitespace-nowrap">
-                      à§³ {money(p.price)}
+                      ${moneyUSD(p.price)}
                     </div>
                     <div className="text-xs font-medium text-gray-700 whitespace-nowrap">
                       Stock: {p.stock ?? 0}

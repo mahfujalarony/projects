@@ -356,38 +356,8 @@ const MerchantDashboardLayout = () => {
           />
         </div>
 
-        {/* TITLE - visible on tablet/desktop, hidden on mobile */}
-        {screens.md ? (
-          <div style={{ 
-            minWidth: 0, 
-            marginLeft: 8,
-            flexShrink: 1,
-          }}>
-            <div style={{ 
-              fontWeight: 700, 
-              color: "#0f172a", 
-              lineHeight: 1.2,
-              fontSize: screens.lg ? 16 : 15,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}>
-              Dashboard
-            </div>
-            <div style={{ 
-              fontSize: 11, 
-              color: "#64748b",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}>
-              Quick overview
-            </div>
-          </div>
-        ) : null}
-
-        {/* SPACER - only when title exists */}
-        {screens.md ? <div style={{ flex: 1, minWidth: 16 }} /> : <div style={{ flex: 1 }} />}
+        {/* SPACER */}
+        <div style={{ flex: 1, minWidth: 16 }} />
 
         {/* RIGHT SECTION */}
         <div style={{ 
@@ -396,6 +366,8 @@ const MerchantDashboardLayout = () => {
           gap: screens.sm ? 8 : 4,
           flexShrink: 0,
           maxWidth: screens.md ? "50%" : "70%",
+          flexWrap: "nowrap",
+          whiteSpace: "nowrap",
         }}>
       <div
         style={{
@@ -412,16 +384,17 @@ const MerchantDashboardLayout = () => {
           fontSize: screens.sm ? 12 : 11,
           lineHeight: 1,
           whiteSpace: "nowrap",
-          maxWidth: screens.sm ? 180 : 100,
+          maxWidth: screens.sm ? 220 : 120,
           overflow: "hidden",
           textOverflow: "ellipsis",
           boxSizing: "border-box",
+          flexShrink: 0,
         }}
-        title={`Balance: BDT ${balanceLoading ? "..." : balance}`}
+        title={`Balance: USD ${balanceLoading ? "..." : balance}`}
       >
         <Wallet size={screens.sm ? 13 : 11} /> 
         {screens.sm ? (
-          <>BDT {balanceLoading ? "..." : balance}</>
+          <>USD {balanceLoading ? "..." : balance}</>
         ) : (
           <>{balanceLoading ? "..." : balance}</>
         )}

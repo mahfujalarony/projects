@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate, useParams, useNavigationType, useLocation } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
 import { useDispatch } from "react-redux";
@@ -9,6 +9,7 @@ import { message, Skeleton } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { API_BASE_URL } from "../../config/env";
+import { canAddToCart } from "../../utils/cartAddGuard";
 
 const API_BASE = API_BASE_URL;
 const ROOT_WRAP_CLASS = "container mx-auto px-2 py-6 pb-16 bg-gray-50 min-h-[70vh]";
@@ -68,27 +69,75 @@ const fetchSearchProducts = async ({ pageParam = 1, queryKey }) => {
 const Search = () => {
   const { query: routeQuery = "" } = useParams();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
+  const location = useLocation();
   const normalizedQuery = (routeQuery || "").trim();
   const dispatch = useDispatch();
   const { ref, inView } = useInView();
   const [sort, setSort] = useState("smart");
-  const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage());
   const [adminSuggestions, setAdminSuggestions] = useState([]);
   // holds the last successfully loaded products so the grid never flashes empty
-  const stableProductsRef = React.useRef([]);
-  const stableTotalRef = React.useRef(0);
+  const stableProductsRef = useRef([]);
+  const stableTotalRef = useRef(0);
 
-  // frozen snapshot timestamp: reset when query or sort changes so pagination stays stable
-  const snapshotAtRef = React.useRef(Date.now());
-  const prevQueryKeyRef = React.useRef(`${normalizedQuery}__${sort}`);
+  // Storage keys
+  const getSnapshotKey = () => `search-snapshot:${normalizedQuery}:${sort}`;
+  const getItemsPerPageKey = () => "search-itemsPerPage";
+  const getScrollKey = () => `scroll:${location.pathname}`;
+  const getPagesKey = () => `search-pages:${normalizedQuery}:${sort}`;
+
+  // Persist snapshotAt - restore if exists
+  const [snapshotAt, setSnapshotAt] = useState(() => {
+    const saved = sessionStorage.getItem(getSnapshotKey());
+    if (saved) return Number(saved);
+    const ts = Date.now();
+    sessionStorage.setItem(getSnapshotKey(), String(ts));
+    return ts;
+  });
+
+  // Persist itemsPerPage - restore if exists
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    const saved = sessionStorage.getItem(getItemsPerPageKey());
+    if (saved) return Number(saved);
+    const val = getItemsPerPage();
+    sessionStorage.setItem(getItemsPerPageKey(), String(val));
+    return val;
+  });
+
+  // Get saved pages count for restoration
+  const getSavedPagesCount = () => {
+    const saved = sessionStorage.getItem(getPagesKey());
+    return saved ? Number(saved) : 1;
+  };
+
+  const scrollKeyRef = useRef(getScrollKey());
+  const scrollRestoreDoneRef = useRef(false);
+  const isBackNavRef = useRef(navigationType === "POP");
+  const [pagesRestored, setPagesRestored] = useState(!isBackNavRef.current);
+
+  // Reset snapshot when query or sort changes
+  const prevQueryKeyRef = useRef(`${normalizedQuery}__${sort}`);
   const currentQueryKey = `${normalizedQuery}__${sort}`;
-  if (prevQueryKeyRef.current !== currentQueryKey) {
-    prevQueryKeyRef.current = currentQueryKey;
-    snapshotAtRef.current = Date.now();
-  }
+  useEffect(() => {
+    if (prevQueryKeyRef.current !== currentQueryKey) {
+      prevQueryKeyRef.current = currentQueryKey;
+      const newTs = Date.now();
+      sessionStorage.setItem(getSnapshotKey(), String(newTs));
+      setSnapshotAt(newTs);
+      // Reset restoration flags
+      scrollRestoreDoneRef.current = false;
+      isBackNavRef.current = false;
+      setPagesRestored(true);
+      sessionStorage.removeItem(getPagesKey());
+    }
+  }, [currentQueryKey]);
 
   useEffect(() => {
-    const onResize = () => setItemsPerPage(getItemsPerPage());
+    const onResize = () => {
+      const val = getItemsPerPage();
+      setItemsPerPage(val);
+      sessionStorage.setItem(getItemsPerPageKey(), String(val));
+    };
     window.addEventListener("resize", onResize, { passive: true });
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -130,24 +179,55 @@ const Search = () => {
     error,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ["products-search-infinite", normalizedQuery, sort, itemsPerPage, snapshotAtRef.current],
+    queryKey: ["products-search-infinite", normalizedQuery, sort, itemsPerPage, snapshotAt],
     queryFn: fetchSearchProducts,
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     enabled: normalizedQuery.length > 0,
     placeholderData: (previousData) => previousData,
   });
 
+  const currentPagesCount = data?.pages?.length || 0;
+
+  // Save pages count whenever it changes (for scroll restoration on back nav)
   useEffect(() => {
+    if (currentPagesCount > 0 && !isBackNavRef.current) {
+      sessionStorage.setItem(getPagesKey(), String(currentPagesCount));
+    }
+  }, [currentPagesCount]);
+
+  // On back navigation, restore all pages that were previously loaded
+  useEffect(() => {
+    if (!isBackNavRef.current || pagesRestored) return;
+    if (status !== "success") return;
+    if (isFetchingNextPage) return;
+
+    const savedPagesCount = getSavedPagesCount();
+    
+    if (currentPagesCount < savedPagesCount && hasNextPage) {
+      fetchNextPage();
+    } else {
+      setPagesRestored(true);
+    }
+  }, [status, currentPagesCount, hasNextPage, isFetchingNextPage, fetchNextPage, pagesRestored]);
+
+  useEffect(() => {
+    // Only trigger infinite scroll for normal navigation, not during back nav page restoration
+    if (isBackNavRef.current && !pagesRestored) return;
     if (inView && hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage, pagesRestored]);
 
   const handleAddToCartClick = (product, qty) => {
+    if (!canAddToCart(product?.id)) {
+      message.info("Already added. Please wait a moment.");
+      return false;
+    }
     const numericQty = Number(qty || 1);
 
     fetch(`${API_BASE}/api/track/add-to-cart/${product.id}`, {
@@ -161,10 +241,12 @@ const Search = () => {
         price: product.price,
         merchantId: product.merchantId,
         imageUrl: product.images?.[0],
+        stock: product.stock,
         qty: numericQty,
       })
     );
     message.success(`${numericQty} ${product.name} added to cart`);
+    return true;
   };
 
   const products = useMemo(() => {
@@ -177,6 +259,71 @@ const Search = () => {
     }
     return Array.from(map.values());
   }, [data]);
+
+  // Scroll restoration - must happen AFTER all pages are restored
+  useEffect(() => {
+    const key = getScrollKey();
+    scrollKeyRef.current = key;
+
+    if (status !== "success" || products.length === 0) return;
+
+    // For back navigation, wait until pages are restored
+    if (isBackNavRef.current && !pagesRestored) return;
+
+    // Check if we should restore scroll (back navigation)
+    const savedScroll = sessionStorage.getItem(key);
+    const shouldRestore = isBackNavRef.current && savedScroll && !scrollRestoreDoneRef.current;
+
+    if (shouldRestore) {
+      const y = Number(savedScroll);
+      if (Number.isFinite(y) && y > 0) {
+        let attempts = 0;
+        const maxAttempts = 20;
+        
+        const tryScroll = () => {
+          attempts++;
+          window.scrollTo({ top: y, behavior: "instant" });
+          
+          const currentY = window.scrollY;
+          const reachedTarget = Math.abs(currentY - y) < 100;
+          
+          if (!reachedTarget && attempts < maxAttempts) {
+            setTimeout(tryScroll, 80);
+          }
+        };
+        
+        requestAnimationFrame(tryScroll);
+        scrollRestoreDoneRef.current = true;
+        return;
+      }
+    }
+
+    // For non-back navigation, scroll to top (only once)
+    if (!isBackNavRef.current && !scrollRestoreDoneRef.current) {
+      window.scrollTo(0, 0);
+      scrollRestoreDoneRef.current = true;
+    }
+  }, [status, products.length, location.pathname, pagesRestored]);
+
+  // Save scroll position on scroll
+  useEffect(() => {
+    let t = null;
+    const onScroll = () => {
+      if (t) return;
+      t = window.setTimeout(() => {
+        t = null;
+        const key = scrollKeyRef.current;
+        if (key) sessionStorage.setItem(key, String(window.scrollY || 0));
+      }, 120);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      const key = scrollKeyRef.current;
+      if (key) sessionStorage.setItem(key, String(window.scrollY || 0));
+      if (t) window.clearTimeout(t);
+    };
+  }, []);
 
   // update stable ref whenever real (non-placeholder) results are available
   if (!isFetching || isFetchingNextPage) {

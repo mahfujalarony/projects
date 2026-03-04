@@ -253,7 +253,7 @@ const NotificationSidebar = ({ autoRefreshMs = 30000 }) => {
         onClick={showDrawer}
         className="cursor-pointer relative hover:scale-110 transition-transform duration-200"
       >
-        <Badge count={unreadCount} offset={[-5, 5]} size="small">
+        <Badge count={unreadCount} overflowCount={9} offset={[-5, 5]} size="small">
           <div className="bg-linier-to-br from-orange-100 to-yellow-100 p-2 rounded-full hover:from-orange-200 hover:to-yellow-200 transition-all duration-300">
             <BellOutlined className="text-xl text-orange-600" />
           </div>

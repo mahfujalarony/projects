@@ -25,7 +25,9 @@ const CartButton = () => {
     );
   }, [cartItems]);
 
-  const handleIncrease = (id, qty) => {
+  const handleIncrease = (id, qty, stock) => {
+    const maxStock = Number(stock);
+    if (Number.isFinite(maxStock) && maxStock > 0 && qty >= maxStock) return;
     dispatch(updateQty({ id, qty: qty + 1 }));
   };
 
@@ -56,23 +58,64 @@ const CartButton = () => {
 
   return (
     <>
+      <style>{`
+        .cart-bump { animation: cartBump 320ms ease-out; }
+        @keyframes cartBump {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.25); }
+          100% { transform: scale(1); }
+        }
+        .cart-fab .ant-float-btn-body {
+          background: linear-gradient(135deg, #fb923c 0%, #f97316 45%, #ea580c 100%);
+          box-shadow: 0 12px 28px rgba(234, 88, 12, 0.35), 0 6px 12px rgba(15, 23, 42, 0.12);
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+        }
+        .cart-fab:hover .ant-float-btn-body {
+          transform: translateY(-2px) scale(1.02);
+          filter: brightness(1.04);
+          box-shadow: 0 16px 32px rgba(234, 88, 12, 0.4), 0 8px 16px rgba(15, 23, 42, 0.14);
+        }
+        .cart-fab .ant-float-btn-icon {
+          color: #fff;
+          font-size: 20px;
+        }
+        .cart-fab-ring {
+          position: absolute;
+          inset: -6px;
+          border-radius: 999px;
+          border: 1px dashed rgba(249, 115, 22, 0.35);
+          animation: cartRing 5s linear infinite;
+          pointer-events: none;
+        }
+        @keyframes cartRing {
+          0% { transform: rotate(0deg); opacity: 0.6; }
+          50% { opacity: 1; }
+          100% { transform: rotate(360deg); opacity: 0.6; }
+        }
+      `}</style>
       {/* Floating Cart Button */}
       <FloatButton
+        className="cart-fab"
         icon={
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative" }} data-cart-target>
+            <span className="cart-fab-ring" />
             <ShoppingCartOutlined style={{ fontSize: 20 }} />
             {cartItems.length > 0 && (
               <span
+                data-cart-badge
                 style={{
                   position: "absolute",
-                  top: -6,
+                  top: -8,
                   right: -10,
-                  background: "#f97316",
+                  background: "linear-gradient(135deg, #ef4444, #f97316)",
                   color: "#fff",
                   borderRadius: "50%",
                   padding: "0 6px",
-                  fontSize: 12,
-                  fontWeight: "bold",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  border: "2px solid #fff",
+                  boxShadow: "0 6px 12px rgba(15,23,42,0.2)",
                 }}
               >
                 {cartItems.length}
@@ -81,7 +124,7 @@ const CartButton = () => {
           </div>
         }
         type="primary"
-        style={{ right: 24, bottom: 24, background: "#f97316" }}
+        style={{ right: 24, bottom: 24 }}
         onClick={() => setOpen(true)}
       />
 
@@ -127,7 +170,7 @@ const CartButton = () => {
                   <div style={{ flex: 1 }}>
                     <h4 style={{ margin: 0 }}>{item.name}</h4>
                     <p style={{ color: "#f97316", fontWeight: "bold" }}>
-                      ৳{Number(item.price).toFixed(2)}
+                      ${Number(item.price).toFixed(2)}
                     </p>
 
                     <div style={{ display: "flex", gap: 8 }}>
@@ -143,16 +186,15 @@ const CartButton = () => {
                       <Button
                         size="small"
                         icon={<PlusOutlined />}
-                        onClick={() =>
-                          handleIncrease(item.id, item.qty)
-                        }
+                        disabled={Number.isFinite(Number(item.stock)) && Number(item.stock) > 0 && item.qty >= Number(item.stock)}
+                        onClick={() => handleIncrease(item.id, item.qty, item.stock)}
                       />
                     </div>
                   </div>
 
                   <div style={{ textAlign: "right" }}>
                     <p style={{ fontWeight: "bold" }}>
-                      ৳{(Number(item.price) * item.qty).toFixed(2)}
+                      ${Number(item.price * item.qty).toFixed(2)}
                     </p>
                     <Button
                       type="text"
@@ -177,7 +219,7 @@ const CartButton = () => {
               >
                 <span>Total</span>
                 <span style={{ color: "#f97316" }}>
-                  ৳{totalPrice.toFixed(2)}
+                  ${totalPrice.toFixed(2)}
                 </span>
               </div>
 

@@ -286,7 +286,7 @@ export default function MerchantOrders() {
                   <div className="mt-2 flex items-center justify-between">
                     <div className="flex gap-1.5 text-[11px]">
                       <span className="rounded-full border bg-gray-50 px-2 py-0.5 font-medium text-gray-600">×{r.quantity}</span>
-                      <span className="rounded-full border bg-gray-50 px-2 py-0.5 font-medium text-gray-600">৳{Number(r.price || 0).toFixed(2)}</span>
+                      <span className="rounded-full border bg-gray-50 px-2 py-0.5 font-medium text-gray-600">${Number(r.price || 0).toFixed(2)}</span>
                     </div>
                     <button
                       onClick={() => { setSelectedOrder(r); setDetailsOpen(true); }}
@@ -308,7 +308,7 @@ export default function MerchantOrders() {
               <table className="min-w-[900px] w-full border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/70">
-                    {["ID", "Product", "Qty", "Price (BDT)", "Status", "Created"].map((h) => (
+                    {["ID", "Product", "Qty", "Price (USD)", "Status", "Created"].map((h) => (
                       <th key={h} className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap">
                         {h}
                       </th>
@@ -353,7 +353,7 @@ export default function MerchantOrders() {
                       </td>
 
                       <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-700">{r.quantity}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-700">{Number(r.price || 0).toFixed(2)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-700">${Number(r.price || 0).toFixed(2)}</td>
 
                       <td className="px-4 py-3 whitespace-nowrap">
                         <StatusBadge status={r.status} />
@@ -438,7 +438,7 @@ export default function MerchantOrders() {
                 { label: "Product ID", value: selectedOrder.productId },
                 { label: "User ID",    value: selectedOrder.userId },
                 { label: "Quantity",   value: selectedOrder.quantity },
-                { label: "Unit Price", value: `৳ ${Number(selectedOrder.price || 0).toFixed(2)}` },
+                { label: "Unit Price", value: `$${Number(selectedOrder.price || 0).toFixed(2)}` },
               ].map(({ label, value }) => (
                 <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 p-2.5">
                   <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</div>

@@ -92,7 +92,7 @@ export default function MerchantPickProducts({ mainCategory }) {
   return (
     <div style={{ padding: 10 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ fontWeight: 700 }}>Balance: ৳ {money(balance)}</div>
+        <div style={{ fontWeight: 700 }}>Balance: $ {money(balance)}</div>
 
         <input
           value={search}
@@ -166,14 +166,14 @@ export default function MerchantPickProducts({ mainCategory }) {
                   </div>
 
                   <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
-                    ৳ {money(p.price)}{" "}
+                    $ {money(p.price)}{" "}
                     {p.oldPrice ? (
-                      <span style={{ textDecoration: "line-through", color: "#999" }}>৳ {money(p.oldPrice)}</span>
+                      <span style={{ textDecoration: "line-through", color: "#999" }}>$ {money(p.oldPrice)}</span>
                     ) : null}
                   </div>
 
                   <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
-                    Stock: {p.stock} • Cost({qty}): ৳ {money(cost)}
+                    Stock: {p.stock} • Cost({qty}): $ {money(cost)}
                   </div>
 
                   <button

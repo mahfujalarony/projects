@@ -1,6 +1,6 @@
 // src/pages/ClaimGiftCard.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Input, Button, Card, message, Divider, Statistic, Alert } from "antd";
+import { Input, Button, Card, message, Divider, Statistic, Alert, Avatar } from "antd";
 import {
   GiftOutlined,
   CheckCircleFilled,
@@ -15,6 +15,7 @@ import axios from "axios";
 import { useSelector } from "react-redux";
 import { useLocation, useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const API = axios.create({
   baseURL: `${API_BASE_URL}/api`,
@@ -24,11 +25,12 @@ const API = axios.create({
 function formatGiftCode(raw) {
   const clean = (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const withoutPrefix = clean.startsWith("GIFT") ? clean.slice(4) : clean;
-  const body = withoutPrefix.slice(0, 8);
+  const body = withoutPrefix.slice(0, 12);
 
   if (!body) return "";
   if (body.length <= 4) return `GIFT-${body}`;
-  return `GIFT-${body.slice(0, 4)}-${body.slice(4)}`;
+  if (body.length <= 8) return `GIFT-${body.slice(0, 4)}-${body.slice(4)}`;
+  return `GIFT-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8)}`;
 }
 
 function CardPreview({ data }) {
@@ -62,7 +64,7 @@ function CardPreview({ data }) {
 
         <div className="mt-7">
           <p className="text-5xl sm:text-6xl font-extrabold tracking-tight text-white leading-none">
-            ৳{parseFloat(data.amount).toFixed(2)}
+            ${parseFloat(data.amount).toFixed(2)}
           </p>
 
           {data.message ? (
@@ -115,7 +117,7 @@ function ClaimSuccessBanner({ result, onClaimAnother }) {
           <Statistic
             title={<span className="text-xs text-zinc-500">Claimed</span>}
             value={parseFloat(result.claimedAmount).toFixed(2)}
-            prefix="৳"
+            prefix="$"
             valueStyle={{ color: "#16a34a", fontSize: 22, fontWeight: 800 }}
           />
         </div>
@@ -123,7 +125,7 @@ function ClaimSuccessBanner({ result, onClaimAnother }) {
           <Statistic
             title={<span className="text-xs text-zinc-500">New Balance</span>}
             value={parseFloat(result.newBalance).toFixed(2)}
-            prefix="৳"
+            prefix="$"
             valueStyle={{ color: "#0a0a0a", fontSize: 22, fontWeight: 800 }}
           />
         </div>
@@ -147,21 +149,6 @@ export default function ClaimGiftCard() {
   const [claiming, setClaiming] = useState(false);
   const [claimResult, setClaimResult] = useState(null);
   const [codeError, setCodeError] = useState("");
-  const [blockUntil, setBlockUntil] = useState(null);
-
-  // ✅ Check if user is blocked on mount
-  useEffect(() => {
-    const storedBlock = localStorage.getItem("gc_verify_block");
-    if (storedBlock) {
-      const expiry = parseInt(storedBlock, 10);
-      if (Date.now() < expiry) {
-        setBlockUntil(expiry);
-      } else {
-        localStorage.removeItem("gc_verify_block");
-        localStorage.removeItem("gc_verify_attempts");
-      }
-    }
-  }, []);
 
   useEffect(() => {
     const qs = new URLSearchParams(location.search);
@@ -194,30 +181,7 @@ export default function ClaimGiftCard() {
     setClaimResult(null);
   };
 
-  // ✅ Helper to handle failed attempts
-  const registerFailedAttempt = () => {
-    const attempts = parseInt(localStorage.getItem("gc_verify_attempts") || "0", 10) + 1;
-    localStorage.setItem("gc_verify_attempts", attempts);
-
-    if (attempts >= 4) {
-      const expiry = Date.now() + 24 * 60 * 60 * 1000; // 24 hours block
-      localStorage.setItem("gc_verify_block", expiry);
-      setBlockUntil(expiry);
-      message.error("Too many failed attempts. You are blocked for 24 hours.");
-    }
-  };
-
   const handleVerify = async (forcedCode) => {
-    // ✅ Check block status before verifying
-    if (blockUntil) {
-      if (Date.now() < blockUntil) {
-        setCodeError("Verification blocked due to too many failed attempts. Try again later.");
-        return;
-      }
-      setBlockUntil(null);
-      localStorage.removeItem("gc_verify_block");
-    }
-
     const code = (forcedCode ?? displayCode).trim();
 
     if (!code || code === "GIFT-" || code.length < 9) {
@@ -228,17 +192,21 @@ export default function ClaimGiftCard() {
     setVerifying(true);
     setCodeError("");
     try {
-      const res = await API.get(`/giftcards/verify/${encodeURIComponent(code)}`);
+      const uid = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : "";
+      const res = await API.get(`/giftcards/verify/${encodeURIComponent(code)}${uid}`);
       setPreview(res.data);
       if (!res.data.valid) {
-        registerFailedAttempt(); // ❌ Failed
         setCodeError(res.data.message || "This code is not valid");
-      } else {
-        localStorage.removeItem("gc_verify_attempts"); // ✅ Success (reset counter)
       }
     } catch (err) {
-      registerFailedAttempt(); // ❌ Error/Failed
-      setCodeError(err.response?.data?.message || "Verification failed. Try again.");
+      const status = err.response?.status;
+      const msg =
+        err.response?.data?.message ||
+        "Verification failed. Try again.";
+      if (status === 429) {
+        message.error(msg);
+      }
+      setCodeError(msg);
     } finally {
       setVerifying(false);
     }
@@ -260,7 +228,15 @@ export default function ClaimGiftCard() {
       setClaimResult(res.data);
       message.success("Gift card claimed successfully!");
     } catch (err) {
-      message.error(err.response?.data?.message || "Claim failed. Please try again.");
+      const status = err.response?.status;
+      const msg =
+        err.response?.data?.message ||
+        "Claim failed. Please try again.";
+      if (status === 429) {
+        message.error(msg);
+      } else {
+        message.error(msg);
+      }
     } finally {
       setClaiming(false);
     }
@@ -277,20 +253,44 @@ export default function ClaimGiftCard() {
       <div className="absolute inset-0 -z-10 gc-soft-grid opacity-[0.28]" />
 
       <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-7 sm:mb-9 flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
+          <div>
+            <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 tracking-tight">
+              Claim a Gift Card
+            </h1>
+            <p className="text-zinc-500 mt-2 text-sm sm:text-base font-medium">
+              Verify your gift card and add the balance instantly.
+            </p>
+          </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <div className="hidden sm:inline-flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 shadow-sm">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-sm">
+                <GiftOutlined />
+              </span>
+              <div className="leading-tight pr-2">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">Gift Flow</p>
+                <p className="text-sm font-black text-zinc-900">
+                  {currentUser ? "Wallet Ready" : "Guest"}
+                </p>
+              </div>
+            </div>
+
             <Button
-              className="rounded-2xl"
+              size="large"
+              className="rounded-2xl font-semibold shadow-sm border-zinc-200"
               onClick={() => navigate("/profile/my-giftcards")}
             >
               My Cards
             </Button>
             <Button
-              className="rounded-2xl"
+              type="primary"
+              size="large"
+              className="rounded-2xl font-semibold shadow-md bg-zinc-900 hover:bg-zinc-800"
               onClick={() => navigate("/gift-card")}
+              icon={<GiftOutlined />}
             >
-              Send a Gift Card
+              Send Gift Card
             </Button>
           </div>
         </div>
@@ -316,7 +316,7 @@ export default function ClaimGiftCard() {
                       placeholder="ENTER GIFT CODE"
                       value={displayCode}
                       onChange={handleCodeChange}
-                      maxLength={14}
+                      maxLength={19}
                       status={codeError ? "error" : ""}
                       onPressEnter={() => handleVerify()}
                       prefix={<GiftOutlined className="text-zinc-400" />}
@@ -367,7 +367,7 @@ export default function ClaimGiftCard() {
                     >
                       {claiming
                         ? "Claiming..."
-                        : `Claim ৳${parseFloat(preview.amount).toFixed(2)}`}
+                        : `Claim $${parseFloat(preview.amount).toFixed(2)}`}
                     </Button>
 
                     <p className="text-center text-xs text-zinc-500">
@@ -380,13 +380,7 @@ export default function ClaimGiftCard() {
                   <Alert
                     type="error"
                     showIcon
-                    message={
-                      preview.status === "claimed"
-                        ? "This gift card has already been claimed"
-                        : preview.status === "expired"
-                        ? "This gift card has expired"
-                        : "Invalid gift card code"
-                    }
+                    message="Wrong gift card code"
                     description="Please check the code and try again, or ask the sender to resend."
                     className="rounded-2xl"
                   />
@@ -402,9 +396,12 @@ export default function ClaimGiftCard() {
               {currentUser ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-3 p-3 bg-zinc-50 rounded-2xl">
-                    <div className="w-9 h-9 rounded-full bg-zinc-900 flex items-center justify-center shrink-0">
-                      <UserOutlined className="text-white text-sm" />
-                    </div>
+                    <Avatar
+                      size={40}
+                      src={normalizeImageUrl(currentUser?.imageUrl)}
+                      icon={!currentUser?.imageUrl && <UserOutlined />}
+                      style={{ backgroundColor: "#111827", flex: "0 0 auto" }}
+                    />
                     <div className="min-w-0">
                       <p className="font-semibold text-zinc-900 text-sm truncate">
                         {currentUser.name}
@@ -420,7 +417,7 @@ export default function ClaimGiftCard() {
                       Current Balance
                     </p>
                     <p className="text-3xl font-extrabold text-white">
-                      ৳{rightBalance}
+                      ${rightBalance}
                     </p>
                     <WalletOutlined className="text-white/40 text-lg mt-2" />
                   </div>

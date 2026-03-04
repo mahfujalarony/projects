@@ -228,14 +228,14 @@ const getToken = () => {
             <OrderStepper status={r.status} />
 
             <div className="mt-1 text-xs text-gray-500">
-              Qty: {r.quantity} • ৳{Number(r.price).toFixed(2)}
+              Qty: {r.quantity} • ${Number(r.price).toFixed(2)}
               {Number(r.deliveryCharge) > 0 && (
-                <span> • Delivery: ৳{Number(r.deliveryCharge).toFixed(2)}</span>
+                <span> • Delivery: ${Number(r.deliveryCharge).toFixed(2)}</span>
               )}
             </div>
 
             <div className="mt-1 text-xs font-semibold text-gray-700">
-              Total: ৳{(Number(r.price) * r.quantity + Number(r.deliveryCharge || 0)).toFixed(2)}
+              Total: ${Number(r.price * r.quantity + (r.deliveryCharge || 0)).toFixed(2)}
             </div>
 
             <div className="mt-1 text-xs text-gray-500">
