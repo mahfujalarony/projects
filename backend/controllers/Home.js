@@ -1,15 +1,52 @@
-const { Op } = require("sequelize");
+const { Op, fn, col, literal } = require("sequelize");
 const ProductDailyStat = require("../models/ProductDailyStat");
 const MerchentStore = require("../models/MerchentStore");
 const User = require("../models/Authentication");
-const MerchentProfile = require("../models/MerchantProfile");
-const { redisGetJson, redisSetJson } = require("../utils/redisClient");
+const HomeCache = require("../models/HomeCache");
 
 const HOME_SECTIONS_CACHE_VERSION = "v1";
 const HOME_SECTIONS_CACHE_TTL_SECONDS = Math.max(
   30,
   Number(process.env.HOME_SECTIONS_CACHE_TTL_SECONDS || 120)
 );
+const HOME_TRENDING_STATS_LIMIT = Math.min(
+  5000,
+  Math.max(100, Number(process.env.HOME_TRENDING_STATS_LIMIT || 1500))
+);
+const HOME_CACHE_KEY_MAX_LENGTH = 191;
+
+const getDbCachedPayload = async (cacheKey) => {
+  if (!cacheKey) return null;
+
+  const row = await HomeCache.findOne({
+    where: {
+      cacheKey,
+      expiresAt: { [Op.gt]: new Date() },
+    },
+    attributes: ["payload"],
+    raw: true,
+  });
+
+  if (!row?.payload) return null;
+
+  try {
+    return JSON.parse(row.payload);
+  } catch (_e) {
+    await HomeCache.destroy({ where: { cacheKey } });
+    return null;
+  }
+};
+
+const setDbCachePayload = async (cacheKey, payload) => {
+  if (!cacheKey || !payload) return;
+
+  const expiresAt = new Date(Date.now() + HOME_SECTIONS_CACHE_TTL_SECONDS * 1000);
+  await HomeCache.upsert({
+    cacheKey: String(cacheKey).slice(0, HOME_CACHE_KEY_MAX_LENGTH),
+    payload: JSON.stringify(payload),
+    expiresAt,
+  });
+};
 
 const cleanImages = (imgs = []) =>
   (Array.isArray(imgs) ? imgs : []).map((x) => (x || "").replace(/\\/g, "/"));
@@ -75,26 +112,34 @@ exports.getHomeSections = async (req, res) => {
     const limit = Number(req.query.limit || 30);
     const cacheKey = `home:sections:${HOME_SECTIONS_CACHE_VERSION}:days:${days}:limit:${limit}`;
 
-    const cached = await redisGetJson(cacheKey);
+    const cached = await getDbCachedPayload(cacheKey);
     if (cached?.success && cached?.data) {
-      return res.json({ ...cached.data, cached: true });
+      return res.json({ ...cached.data, cached: true, cacheSource: "db" });
     }
 
     const since = new Date();
     since.setDate(since.getDate() - days);
     const sinceDate = since.toISOString().slice(0, 10); // YYYY-MM-DD
 
-    // 1) Stats last N days (raw)
+    // 1) Stats last N days aggregated in DB (avoids huge raw row transfer)
     const stats = await ProductDailyStat.findAll({
       where: { statDate: { [Op.gte]: sinceDate } },
       attributes: [
         "productId",
-        "views",
-        "addToCart",
-        "purchases",
-        "soldQty",
-        "revenue",
+        [fn("SUM", col("views")), "views"],
+        [fn("SUM", col("addToCart")), "addToCart"],
+        [fn("SUM", col("purchases")), "purchases"],
+        [fn("SUM", col("soldQty")), "soldQty"],
+        [fn("SUM", col("revenue")), "revenue"],
       ],
+      group: ["productId"],
+      order: [
+        [literal("SUM(purchases)"), "DESC"],
+        [literal("SUM(soldQty)"), "DESC"],
+        [literal("SUM(addToCart)"), "DESC"],
+        [literal("SUM(views)"), "DESC"],
+      ],
+      limit: HOME_TRENDING_STATS_LIMIT,
       raw: true,
     });
 
@@ -124,21 +169,22 @@ exports.getHomeSections = async (req, res) => {
 
     // 2) Products fetch
     const products = await MerchentStore.findAll({
-      where: productIds.length ? { id: { [Op.in]: productIds } } : {},
-      include: [
-        {
-          model: User,
-          as: "merchant",
-          attributes: ["id", "name", "imageUrl"],
-          required: false,
-          include: [
-            {
-              model: MerchentProfile,
-              as: "merchantProfile",
-              required: false,
-            },
-          ],
-        },
+      where: productIds.length
+        ? { id: { [Op.in]: productIds }, stock: { [Op.gt]: 0 } }
+        : { stock: { [Op.gt]: 0 } },
+      attributes: [
+        "id",
+        "name",
+        "price",
+        "oldPrice",
+        "images",
+        "stock",
+        "category",
+        "subCategory",
+        "merchantId",
+        "averageRating",
+        "totalReviews",
+        "createdAt",
       ],
       // fallback: no stats -> show newest
       limit: productIds.length ? undefined : limit,
@@ -151,7 +197,7 @@ exports.getHomeSections = async (req, res) => {
       .filter((p) => Number(p.stock || 0) > 0);
 
     // 3) Trending rank
-    const rankedTrending = productJson
+    const rankedTrendingBase = productJson
       .map((p) => {
         const a = agg.get(Number(p.id)) || {
           views: 0,
@@ -170,6 +216,7 @@ exports.getHomeSections = async (req, res) => {
       })
       .sort((x, y) => y.score - x.score)
       .slice(0, limit);
+    const rankedTrending = await attachMerchantSummary(rankedTrendingBase);
 
     // 4) New Arrivals — 1 newest product per merchant, fair rotation
     const newArrivalsRaw = await MerchentStore.findAll({
@@ -318,7 +365,7 @@ exports.getHomeSections = async (req, res) => {
       ourProducts,
     };
 
-    await redisSetJson(cacheKey, { success: true, data: payload }, HOME_SECTIONS_CACHE_TTL_SECONDS);
+    await setDbCachePayload(cacheKey, { success: true, data: payload });
 
     return res.json(payload);
   } catch (e) {
