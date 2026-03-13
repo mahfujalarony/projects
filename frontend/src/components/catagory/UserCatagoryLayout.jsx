@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigationType, useParams, useLocation } from "react-router-dom";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useInView } from "react-intersection-observer";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "../../redux/cartSlice";
 import ProductCard from "../common/ProductCart";
 import { message } from "antd";
@@ -101,6 +101,7 @@ const UserCatagoryLayout = () => {
   const { categoryName = "", "*": nestedPath = "" } = useParams();
   const { ref, inView } = useInView();
   const dispatch = useDispatch();
+  const cartItems = useSelector((state) => state.cart.items || []);
   const [sort, setSort] = useState("smart");
   const pathSegments = String(nestedPath || "")
     .split("/")
@@ -312,6 +313,32 @@ const UserCatagoryLayout = () => {
       message.error("Invalid product price. Please refresh and try again.");
       return false;
     }
+    const requestedQty = Math.max(1, Number(qty || 1));
+    const maxStock = Number(product?.stock);
+    const hasStock = Number.isFinite(maxStock) && maxStock > 0;
+    const existingQty = Number(
+      cartItems.find((it) => String(it.id) === String(product?.id))?.qty || 0
+    );
+
+    if (existingQty > 0) {
+      message.info(`Already in cart (${existingQty}). Quantity change from cart page.`);
+      return false;
+    }
+
+    if (hasStock && existingQty >= maxStock) {
+      message.warning(`Maximum stock reached (In cart: ${existingQty}/${maxStock})`);
+      return false;
+    }
+
+    const allowedQty = hasStock
+      ? Math.min(requestedQty, Math.max(0, maxStock - existingQty))
+      : requestedQty;
+
+    if (allowedQty <= 0) {
+      message.warning("Quantity exceeds available stock");
+      return false;
+    }
+
     fetch(`http://localhost:3001/api/track/add-to-cart/${product.id}`, {
       method: "POST",
     }).catch(() => {});
@@ -324,10 +351,14 @@ const UserCatagoryLayout = () => {
         merchantId: product.merchantId,
         imageUrl: product.images?.[0] || product.imageUrl?.[0] || product.imageUrl,
         stock: product.stock,
-        qty,
+        qty: allowedQty,
       })
     );
-    message.success(`${qty} ${product.name} added to cart`);
+    if (allowedQty < requestedQty) {
+      message.success(`${allowedQty} x ${product.name} added (stock limit applied)`);
+    } else {
+      message.success(`${allowedQty} x ${product.name} added to cart`);
+    }
     return true;
   };
 

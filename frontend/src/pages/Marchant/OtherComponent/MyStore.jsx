@@ -1,6 +1,6 @@
 ﻿// MyStore.jsx
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { Modal, Form, Input, Button, message, Select, Tag, Pagination } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import ReactQuill from "react-quill-new";
@@ -83,6 +83,9 @@ export default function MyStore() {
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const isBackNav = navigationType === "POP";
 
         let saved = null;
       try {
@@ -98,6 +101,9 @@ export default function MyStore() {
   const [limit, setLimit] = useState(() => Number(sessionStorage.getItem("ms_limit") || 12));
   const [searchInput, setSearchInput] = useState(() => sessionStorage.getItem("ms_search") || "");
   const [search, setSearch] = useState(() => sessionStorage.getItem("ms_search") || "");
+  const scrollKey = `ms_scroll:${location.pathname}`;
+  const [scrollRestored, setScrollRestored] = useState(false);
+  const canPersistScrollRef = useRef(!isBackNav);
 
   useEffect(() => {
     sessionStorage.setItem("ms_page", page);
@@ -170,8 +176,56 @@ export default function MyStore() {
   const totalPages = meta?.totalPages || 1;
 
   const handleProductClick = (id) => {
+    sessionStorage.setItem("ms_page", String(page));
+    sessionStorage.setItem("ms_limit", String(limit));
+    sessionStorage.setItem("ms_search", search);
+    sessionStorage.setItem(scrollKey, String(window.scrollY || 0));
     navigate(`/products/${id}`);
   };
+
+  useEffect(() => {
+    let timer = null;
+    const onScroll = () => {
+      if (!canPersistScrollRef.current) return;
+      if (timer) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        sessionStorage.setItem(scrollKey, String(window.scrollY || 0));
+      }, 120);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (canPersistScrollRef.current) {
+        sessionStorage.setItem(scrollKey, String(window.scrollY || 0));
+      }
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [scrollKey]);
+
+  useEffect(() => {
+    if (!isBackNav || scrollRestored || loading) return;
+    if (rows.length === 0) return;
+
+    const y = Number(sessionStorage.getItem(scrollKey) || 0);
+    if (Number.isFinite(y) && y > 0) {
+      let attempts = 0;
+      const maxAttempts = 18;
+      const tryRestore = () => {
+        attempts += 1;
+        window.scrollTo({ top: y, behavior: "auto" });
+        const current = window.scrollY || 0;
+        const reached = Math.abs(current - y) < 80;
+        if (!reached && attempts < maxAttempts) {
+          window.setTimeout(tryRestore, 90);
+        }
+      };
+      requestAnimationFrame(tryRestore);
+    }
+    canPersistScrollRef.current = true;
+    setScrollRestored(true);
+  }, [isBackNav, scrollRestored, loading, rows.length, scrollKey]);
 
   const onEditClick = (item) => {
     setEditingItem(item);

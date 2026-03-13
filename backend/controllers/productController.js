@@ -287,6 +287,56 @@ const cleanupRankCache = () => {
   }
 };
 
+const quoteIdentifier = (value = "") => `\`${String(value).replace(/`/g, "``")}\``;
+
+const getDailyStatTableSql = () => {
+  const raw = ProductDailyStat.getTableName();
+  if (typeof raw === "string") return quoteIdentifier(raw);
+  if (raw && typeof raw === "object" && raw.tableName) return quoteIdentifier(raw.tableName);
+  return quoteIdentifier("ProductDailyStats");
+};
+
+const buildScoreSql = (sort = "smart", sinceDate = "", alias = "MerchentStore") => {
+  const a = quoteIdentifier(alias);
+  const statTable = getDailyStatTableSql();
+  const safeSinceDate = String(sinceDate || "").slice(0, 10);
+  const viewsSql = `COALESCE((SELECT SUM(pds.views) FROM ${statTable} pds WHERE pds.productId = ${a}.id AND pds.statDate >= '${safeSinceDate}'), 0)`;
+  const addToCartSql = `COALESCE((SELECT SUM(pds.addToCart) FROM ${statTable} pds WHERE pds.productId = ${a}.id AND pds.statDate >= '${safeSinceDate}'), 0)`;
+  const purchasesSql = `COALESCE((SELECT SUM(pds.purchases) FROM ${statTable} pds WHERE pds.productId = ${a}.id AND pds.statDate >= '${safeSinceDate}'), 0)`;
+  const soldQtySql = `COALESCE((SELECT SUM(pds.soldQty) FROM ${statTable} pds WHERE pds.productId = ${a}.id AND pds.statDate >= '${safeSinceDate}'), 0)`;
+  const revenueSql = `COALESCE((SELECT SUM(pds.revenue) FROM ${statTable} pds WHERE pds.productId = ${a}.id AND pds.statDate >= '${safeSinceDate}'), 0)`;
+  const trendSql = `(${purchasesSql} * 80 + ${soldQtySql} * 25 + ${addToCartSql} * 8 + ${viewsSql} * 1 + ${revenueSql} * 0.02)`;
+  const ratingSql = `COALESCE(${a}.averageRating, 0)`;
+  const reviewsSql = `COALESCE(${a}.totalReviews, 0)`;
+  const soldSql = `COALESCE(${a}.soldCount, 0)`;
+  const priceSql = `COALESCE(${a}.price, 0)`;
+  const discountSql = `(CASE WHEN COALESCE(${a}.oldPrice, 0) > COALESCE(${a}.price, 0) AND COALESCE(${a}.price, 0) > 0 THEN ((COALESCE(${a}.oldPrice, 0) - COALESCE(${a}.price, 0)) / COALESCE(${a}.oldPrice, 0)) * 100 ELSE 0 END)`;
+  const freshSql = `GREATEST(0, 30 - TIMESTAMPDIFF(DAY, ${a}.createdAt, NOW()))`;
+  const createdTsSql = `UNIX_TIMESTAMP(${a}.createdAt)`;
+
+  switch (String(sort || "smart").toLowerCase()) {
+    case "newest":
+      return createdTsSql;
+    case "oldest":
+      return `(-1 * ${createdTsSql})`;
+    case "price_low":
+      return `(-1 * ${priceSql})`;
+    case "price_high":
+      return priceSql;
+    case "rating":
+      return `(${ratingSql} * 1000 + ${reviewsSql} * 2 + ${trendSql} * 0.05)`;
+    case "discount":
+      return `(${discountSql} * 100 + ${trendSql} * 0.1 + ${freshSql})`;
+    case "popular":
+      return `(${trendSql} + ${soldSql} * 5 + ${ratingSql} * 8 + ${reviewsSql} * 0.2)`;
+    case "trending":
+      return `(${trendSql} * 3 + ${soldSql} * 8 + ${ratingSql} * 5 + ${reviewsSql} * 0.1)`;
+    case "smart":
+    default:
+      return `(${trendSql} * 1 + ${ratingSql} * 28 + LEAST(${reviewsSql}, 200) * 0.35 + LEAST(${soldSql}, 1000) * 0.08 + ${discountSql} * 0.9 + ${freshSql} * 0.12)`;
+  }
+};
+
 const fetchRankedPublicRows = async ({
   where,
   sort,
@@ -297,15 +347,17 @@ const fetchRankedPublicRows = async ({
   cacheKey,
 }) => {
   cleanupRankCache();
-  const cached = cacheKey ? rankCache.get(cacheKey) : null;
+  const requestCacheKey = cacheKey ? `${cacheKey}|mode:${mode}|offset:${offset}|limit:${limit}` : null;
+  const cached = requestCacheKey ? rankCache.get(requestCacheKey) : null;
   if (cached && Date.now() - cached.createdAt <= RANK_CACHE_TTL_MS) {
-    return {
-      rows: cached.rankedRows.slice(offset, offset + limit),
-      total: cached.total,
-    };
+    return { rows: cached.rows, total: cached.total };
   }
 
   const snapshotDate = new Date(Number(snapshotAt) || Date.now());
+  const since = new Date();
+  since.setDate(since.getDate() - 7);
+  const sinceDate = since.toISOString().slice(0, 10);
+  const scoreSql = buildScoreSql(sort, sinceDate);
   const effectiveWhere = {
     ...where,
     updatedAt: {
@@ -314,35 +366,93 @@ const fetchRankedPublicRows = async ({
     },
   };
 
-  const uniqueTotal = await MerchentStore.count({
+  if (mode === "all") {
+    const total = await MerchentStore.count({ where: effectiveWhere });
+    if (!total) return { rows: [], total: 0 };
+
+    const rows = await MerchentStore.findAll({
+      where: effectiveWhere,
+      order: [
+        [Sequelize.literal(scoreSql), "DESC"],
+        ["createdAt", "DESC"],
+        ["id", "ASC"],
+      ],
+      limit,
+      offset,
+    });
+
+    if (requestCacheKey) {
+      rankCache.set(requestCacheKey, {
+        createdAt: Date.now(),
+        total,
+        rows,
+      });
+    }
+    return { rows, total };
+  }
+
+  const total = await MerchentStore.count({
     where: effectiveWhere,
     distinct: true,
     col: "productId",
   });
-  const allTotal = await MerchentStore.count({ where: effectiveWhere });
+  if (!total) return { rows: [], total: 0 };
 
-  if ((mode === "all" ? allTotal : uniqueTotal) === 0) return { rows: [], total: 0 };
-
-  const rawRows = await MerchentStore.findAll({
+  const grouped = await MerchentStore.findAll({
     where: effectiveWhere,
-    order: [["updatedAt", "DESC"], ["id", "DESC"]],
+    attributes: [
+      "productId",
+      [Sequelize.literal(`MAX(${scoreSql})`), "bestScore"],
+      [Sequelize.fn("MAX", Sequelize.col("createdAt")), "latestCreatedAt"],
+      [Sequelize.fn("MIN", Sequelize.col("id")), "minId"],
+    ],
+    group: ["productId"],
+    order: [
+      [Sequelize.literal("bestScore"), "DESC"],
+      [Sequelize.literal("latestCreatedAt"), "DESC"],
+      [Sequelize.literal("minId"), "ASC"],
+    ],
+    limit,
+    offset,
+    raw: true,
   });
 
-  const trendMap = await buildRecentTrendMap(rawRows);
-  const ranked = mode === "all"
-    ? rankRowsWithoutCollapse(rawRows, sort, trendMap)
-    : collapseAndRankByBaseProduct(rawRows, sort, trendMap);
-  const total = mode === "all" ? allTotal : uniqueTotal;
+  const pageProductIds = grouped
+    .map((x) => Number(x.productId))
+    .filter((x) => Number.isFinite(x) && x > 0);
+  if (!pageProductIds.length) return { rows: [], total };
 
-  if (cacheKey) {
-    rankCache.set(cacheKey, {
+  const candidateRows = await MerchentStore.findAll({
+    where: {
+      ...effectiveWhere,
+      productId: { [Op.in]: pageProductIds },
+    },
+    order: [
+      [Sequelize.literal(scoreSql), "DESC"],
+      ["createdAt", "DESC"],
+      ["id", "ASC"],
+    ],
+  });
+
+  const trendMap = await buildRecentTrendMap(candidateRows);
+  const deduped = collapseAndRankByBaseProduct(candidateRows, sort, trendMap);
+  const byProductId = new Map(
+    deduped.map((row) => {
+      const base = typeof row?.toJSON === "function" ? row.toJSON() : row;
+      return [Number(base.productId || base.id), base];
+    })
+  );
+  const rows = pageProductIds.map((pid) => byProductId.get(Number(pid))).filter(Boolean);
+
+  if (requestCacheKey) {
+    rankCache.set(requestCacheKey, {
       createdAt: Date.now(),
       total,
-      rankedRows: ranked,
+      rows,
     });
   }
 
-  return { rows: ranked.slice(offset, offset + limit), total };
+  return { rows, total };
 };
 
 const collectDescendantSubCategorySlugs = (list = [], rootIds = new Set()) => {

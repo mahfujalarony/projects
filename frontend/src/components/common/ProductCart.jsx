@@ -7,10 +7,18 @@ const ProductCard = ({ product, onAddToCart, onProductClick, imageClassName = "h
   const [justAdded, setJustAdded] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const buttonRef = useRef(null);
+  const maxStock = Number(product?.stock);
+  const hasStockLimit = Number.isFinite(maxStock) && maxStock > 0;
+  const maxQty = hasStockLimit ? maxStock : 99;
 
   const handleQtyChange = (e) => {
-    const value = parseInt(e.target.value);
-    setQty(value > 0 ? value : 1);
+    const raw = parseInt(e.target.value, 10);
+    if (!Number.isFinite(raw)) {
+      setQty(1);
+      return;
+    }
+    const next = Math.max(1, Math.min(raw, maxQty));
+    setQty(next);
   };
 
   const handleOpenProduct = () => {
@@ -69,12 +77,19 @@ const ProductCard = ({ product, onAddToCart, onProductClick, imageClassName = "h
               </span>
             </div>
           </div>
+          <p
+            className={`mb-1 text-[10px] font-medium ${
+              Number(product?.stock || 0) > 0 ? "text-emerald-600" : "text-red-500"
+            }`}
+          >
+            Stock: {Math.max(0, Number(product?.stock || 0))}
+          </p>
 
           <div className="flex items-center gap-1">
             <input
               type="number"
               min="1"
-              max="10"
+              max={maxQty}
               value={qty}
               onChange={handleQtyChange}
               className="w-8 md:w-10 text-center rounded border border-gray-200 text-[10px] h-7 focus:outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"

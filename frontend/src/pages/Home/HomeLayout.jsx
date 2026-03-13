@@ -1,6 +1,6 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Layout, Menu, Grid, Drawer, message } from "antd";
-import { TagOutlined, FireOutlined, AppstoreOutlined } from "@ant-design/icons";
+import { TagOutlined, AppstoreOutlined } from "@ant-design/icons";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import Navbar from "../../components/common/Navbar";
 import CartButton from "../../components/layout/CartButton";
@@ -58,11 +58,6 @@ const HomeLayout = () => {
   const [siteMeta, setSiteMeta] = useState({ name: "", logo: "", loaded: false });
 
   const menuItems = [
-    {
-      key: "/flash-sales",
-      icon: <FireOutlined style={{ color: "#dc2626" }} />,
-      label: "Flash Sales",
-    },
     {
       key: "/products",
       icon: <AppstoreOutlined style={{ color: "#0ea5e9" }} />,
@@ -279,3 +274,4 @@ const HomeLayout = () => {
 };
 
 export default HomeLayout;
+

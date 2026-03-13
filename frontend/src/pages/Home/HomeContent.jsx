@@ -14,7 +14,7 @@ import { normalizeImageUrl } from "../../utils/imageUrl";
 import { canAddToCart } from "../../utils/cartAddGuard";
 import { animateAddToCart, bumpCartBadge } from "../../utils/cartAnimation";
 const { useBreakpoint } = Grid;
-const HOME_CACHE_TTL = 1000 * 60 * 15;
+const HOME_CACHE_TTL = 1000 * 60 * 2;
 
 const SHIMMER_CSS = `
 @keyframes shimmer {
@@ -824,8 +824,11 @@ const HomeContent = () => {
           )}
 
           <div className="flex justify-center mt-6">
-            <Link to="/products" className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors gap-1">
-              View All Products
+            <Link
+              to="/products"
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+            >
+              View All Products <MoveRight size={17} />
             </Link>
           </div>
         </div>
