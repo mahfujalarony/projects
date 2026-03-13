@@ -234,6 +234,20 @@ exports.suspendMerchant = async (req, res) => {
 
     user.role = "user";
     await user.save({ transaction: t });
+    const actorId = req.user?.id || req.userId || null;
+
+    await appendAdminHistory(
+      `Merchant suspended. User #${merchant.userId}, request #${merchant.id}, by admin #${actorId || "unknown"}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "merchant_suspended",
+          actorId,
+          userId: merchant.userId,
+          merchantProfileId: merchant.id,
+        },
+      }
+    );
 
     await Notification.create(
       {
@@ -288,6 +302,20 @@ exports.resumeMerchant = async (req, res) => {
 
     user.role = "merchant";
     await user.save({ transaction: t });
+    const actorId = req.user?.id || req.userId || null;
+
+    await appendAdminHistory(
+      `Merchant resumed. User #${merchant.userId}, request #${merchant.id}, by admin #${actorId || "unknown"}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "merchant_resumed",
+          actorId,
+          userId: merchant.userId,
+          merchantProfileId: merchant.id,
+        },
+      }
+    );
 
     await Notification.create(
       {
@@ -604,6 +632,14 @@ exports.updateAdminProduct = async (req, res) => {
 
     const product = await Product.findByPk(id);
     if (!product) return res.status(404).json({ message: "Product not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const before = {
+      name: product.name,
+      price: Number(product.price || 0),
+      stock: Number(product.stock || 0),
+      category: product.category || null,
+      subCategory: product.subCategory || null,
+    };
 
     const { name, price, stock, category, subCategory, description, images, imageUrl, categoryId, subCategoryId } = req.body;
 
@@ -630,6 +666,24 @@ exports.updateAdminProduct = async (req, res) => {
     if (subCategoryId !== undefined) product.subCategoryId = subCategoryId;
 
     await product.save();
+    await appendAdminHistory(
+      `Admin product updated. Product #${product.id} (${product.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "admin_product_updated",
+          actorId,
+          productId: product.id,
+          before,
+          after: {
+            name: product.name,
+            price: Number(product.price || 0),
+            stock: Number(product.stock || 0),
+            category: product.category || null,
+            subCategory: product.subCategory || null,
+          },
+        },
+      }
+    );
 
     return res.json({ success: true, message: "Product updated", data: product });
   } catch (err) {
@@ -673,8 +727,27 @@ exports.deleteAdminProduct = async (req, res) => {
 
     const found = await Product.findByPk(id);
     if (!found) return res.status(404).json({ message: "Product not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      productId: found.id,
+      name: found.name,
+      category: found.category || null,
+      subCategory: found.subCategory || null,
+      price: Number(found.price || 0),
+      stock: Number(found.stock || 0),
+    };
 
     await Product.destroy({ where: { id } });
+    await appendAdminHistory(
+      `Admin product deleted. Product #${snapshot.productId} (${snapshot.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "admin_product_deleted",
+          actorId,
+          ...snapshot,
+        },
+      }
+    );
 
     return res.json({ message: "Product deleted successfully" });
   } catch (err) {
@@ -708,6 +781,7 @@ exports.setSubAdminPermissions = async (req, res) => {
 
     const user = await User.findByPk(subAdminId);
     if (!user) return res.status(404).json({ message: "User not found" });
+    const actorId = req.user?.id || req.userId || null;
 
     // optional: ensure role
     // if (user.role !== "subadmin") return res.status(400).json({ message: "Not a subadmin" });
@@ -720,6 +794,18 @@ exports.setSubAdminPermissions = async (req, res) => {
         clean.map((permKey) => ({ userId: subAdminId, permKey }))
       );
     }
+
+    await appendAdminHistory(
+      `Subadmin permissions set for user #${subAdminId} by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "subadmin_permissions_set",
+          actorId,
+          userId: subAdminId,
+          permissions: clean,
+        },
+      }
+    );
 
     return res.json({ success: true, userId: subAdminId, permissions: clean });
   } catch (e) {

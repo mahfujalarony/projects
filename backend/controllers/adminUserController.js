@@ -4,6 +4,7 @@ const User = require("../models/Authentication"); // তোমার User model
 const SubAdminPermission = require("../models/SubAdminPermission");
 const bcrypt = require("bcryptjs");
 const { toMoney2 } = require("../utils/money");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const ALLOWED_SUBADMIN_PERMISSIONS = new Set([
   "edit_products",
@@ -115,6 +116,14 @@ exports.adminUpdateUser = async (req, res) => {
     const user = await User.findByPk(id);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
+    const actorId = req.user?.id || req.userId || null;
+    const before = {
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      balance: Number(user.balance || 0),
+      imageUrl: user.imageUrl || null,
+    };
     const oldRole = user.role;
 
     // ✅ Basic validations
@@ -169,6 +178,26 @@ exports.adminUpdateUser = async (req, res) => {
       }
     }
 
+    const after = {
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      balance: Number(user.balance || 0),
+      imageUrl: user.imageUrl || null,
+    };
+    await appendAdminHistory(
+      `User #${user.id} updated by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "admin_user_updated",
+          actorId,
+          userId: user.id,
+          before,
+          after,
+        },
+      }
+    );
+
     return res.json({
       success: true,
       message: "User updated",
@@ -218,6 +247,15 @@ exports.setSubAdminPermissions = async (req, res) => {
     );
 
     // 1. Delete old permissions
+    const actorId = req.user?.id || req.userId || null;
+    const previous = await SubAdminPermission.findAll({
+      where: { userId },
+      attributes: ["permKey"],
+      raw: true,
+    });
+    const previousPermissions = previous.map((x) => x.permKey);
+
+    // 1. Delete old permissions
     await SubAdminPermission.destroy({ where: { userId } });
 
     // 2. Insert new permissions
@@ -225,6 +263,19 @@ exports.setSubAdminPermissions = async (req, res) => {
       const rows = cleaned.map((p) => ({ userId, permKey: p }));
       await SubAdminPermission.bulkCreate(rows);
     }
+
+    await appendAdminHistory(
+      `Subadmin permissions updated for user #${userId} by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "subadmin_permissions_updated",
+          actorId,
+          userId,
+          before: previousPermissions,
+          after: cleaned,
+        },
+      }
+    );
 
     return res.json({ success: true, message: "Permissions updated", permissions: cleaned });
   } catch (e) {

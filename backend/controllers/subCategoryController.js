@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const Category = require("../models/Category");
 const SubCategory = require("../models/SubCategory");
 const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const slugify = (s = "") =>
   s
@@ -99,6 +100,22 @@ exports.createSubCategory = async (req, res) => {
       imageUrl: imageUrl || null,
       isActive: typeof isActive === "boolean" ? isActive : true,
     });
+    const actorId = req.user?.id || req.userId || null;
+    await appendAdminHistory(
+      `Subcategory created. Subcategory #${created.id} (${created.name}) under category #${created.categoryId} by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "subcategory_created",
+          actorId,
+          subCategoryId: created.id,
+          categoryId: created.categoryId,
+          parentSubCategoryId: created.parentSubCategoryId || null,
+          name: created.name,
+          slug: created.slug,
+          isActive: created.isActive,
+        },
+      }
+    );
 
     return res.status(201).json(created);
   } catch (err) {
@@ -141,6 +158,14 @@ exports.updateSubCategory = async (req, res) => {
 
     const sub = await SubCategory.findByPk(id);
     if (!sub) return res.status(404).json({ message: "Subcategory not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const before = {
+      name: sub.name,
+      slug: sub.slug,
+      isActive: sub.isActive,
+      parentSubCategoryId: sub.parentSubCategoryId || null,
+      imageUrl: sub.imageUrl || null,
+    };
 
     if (typeof parentSubCategoryId !== "undefined") {
       const nextParentId = parentSubCategoryId ? Number(parentSubCategoryId) : null;
@@ -173,6 +198,25 @@ exports.updateSubCategory = async (req, res) => {
     if (typeof isActive === "boolean") sub.isActive = isActive;
 
     await sub.save();
+    await appendAdminHistory(
+      `Subcategory updated. Subcategory #${sub.id} (${sub.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "subcategory_updated",
+          actorId,
+          subCategoryId: sub.id,
+          categoryId: sub.categoryId,
+          before,
+          after: {
+            name: sub.name,
+            slug: sub.slug,
+            isActive: sub.isActive,
+            parentSubCategoryId: sub.parentSubCategoryId || null,
+            imageUrl: sub.imageUrl || null,
+          },
+        },
+      }
+    );
     return res.json(sub);
   } catch (err) {
 
@@ -185,6 +229,13 @@ exports.deleteSubCategory = async (req, res) => {
     const id = Number(req.params.id);
     const sub = await SubCategory.findByPk(id);
     if (!sub) return res.status(404).json({ message: "Subcategory not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      subCategoryId: sub.id,
+      categoryId: sub.categoryId,
+      name: sub.name,
+      slug: sub.slug,
+    };
 
     const descendants = await getDescendantIds(id);
     const idsToDelete = [id, ...descendants];
@@ -203,6 +254,18 @@ exports.deleteSubCategory = async (req, res) => {
 
       }
     }
+
+    await appendAdminHistory(
+      `Subcategory deleted. Subcategory #${snapshot.subCategoryId} (${snapshot.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "subcategory_deleted",
+          actorId,
+          ...snapshot,
+          deletedCount: idsToDelete.length,
+        },
+      }
+    );
 
     return res.json({ message: "Subcategory deleted", deletedCount: idsToDelete.length });
   } catch (err) {

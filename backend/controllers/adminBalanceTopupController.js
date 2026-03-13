@@ -335,8 +335,26 @@ exports.deleteTopup = async (req, res) => {
     if (!row) {
       return res.status(404).json({ success: false, message: "Topup request not found" });
     }
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      topupId: row.id,
+      userId: row.userId,
+      amount: Number(row.amount || 0),
+      transactionId: row.transactionId || null,
+      status: row.status || null,
+    };
 
     await row.destroy();
+    await appendAdminHistory(
+      `Topup request deleted. Request #${snapshot.topupId}, user #${snapshot.userId}, by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "topup_deleted",
+          actorId,
+          ...snapshot,
+        },
+      }
+    );
     return res.json({ success: true, message: "Topup request deleted" });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Server error" });

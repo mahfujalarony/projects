@@ -4,6 +4,7 @@ const GiftCard = require('../models/GiftCard');
 const User = require('../models/Authentication');
 const { Transaction } = require('sequelize');
 const { addMoney2, subMoney2, toMoney2 } = require("../utils/money");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 // Generate a unique gift card code: GIFT-XXXX-XXXX-XXXX
 const generateCode = () => {
@@ -113,6 +114,23 @@ const createGiftCard = async (req, res) => {
       { transaction: t }
     );
 
+    await appendAdminHistory(
+      `Gift card created. Card #${giftCard.id}, code ${giftCard.code}, amount ${Number(giftCard.amount || 0).toFixed(
+        2
+      )}, sender #${senderId}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "giftcard_created",
+          giftCardId: giftCard.id,
+          code: giftCard.code,
+          amount: Number(giftCard.amount || 0),
+          senderId: Number(senderId),
+          expiresAt: giftCard.expiresAt || null,
+        },
+      }
+    );
+
     // ✅ Commit transaction
     await t.commit();
 
@@ -204,6 +222,23 @@ const claimGiftCard = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid balance calculation" });
     }
     await claimer.update({ balance: newBalance }, { transaction: t });
+
+    await appendAdminHistory(
+      `Gift card claimed. Card #${giftCard.id}, amount ${Number(giftCard.amount || 0).toFixed(
+        2
+      )}, claimer #${userId}, sender #${giftCard.createdBy}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "giftcard_claimed",
+          giftCardId: giftCard.id,
+          code: giftCard.code,
+          amount: Number(giftCard.amount || 0),
+          claimerId: Number(userId),
+          senderId: Number(giftCard.createdBy || 0),
+        },
+      }
+    );
 
     await t.commit();
 

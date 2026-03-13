@@ -3,6 +3,7 @@ const { Op } = require("sequelize");
 const Wallet = require("../models/Wallet");
 const WalletNumber = require("../models/WalletNumber");
 const MobileBanking = require("../models/MobileBanking");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -111,6 +112,23 @@ exports.createWallet = async (req, res) => {
       isActive: typeof isActive === "boolean" ? isActive : true,
     });
 
+    const actorId = req.user?.id || req.userId || null;
+    await appendAdminHistory(
+      `Wallet created. Wallet #${row.id} (${row.name}) under provider #${row.mobileBankingId} by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "wallet_created",
+          actorId,
+          walletId: row.id,
+          mobileBankingId: row.mobileBankingId,
+          name: row.name,
+          visibility: row.visibility,
+          ownerUserId: row.ownerUserId || null,
+          isActive: row.isActive,
+        },
+      }
+    );
+
     return res.json({ success: true, data: row });
   } catch (err) {
 
@@ -126,6 +144,15 @@ exports.updateWallet = async (req, res) => {
 
     const row = await Wallet.findByPk(walletId);
     if (!row) return res.status(404).json({ success: false, message: "Wallet not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const before = {
+      name: row.name,
+      visibility: row.visibility,
+      ownerUserId: row.ownerUserId || null,
+      sortOrder: row.sortOrder,
+      isActive: row.isActive,
+      imgUrl: row.imgUrl || null,
+    };
 
     if (name !== undefined) {
       if (!isNonEmpty(name)) return res.status(400).json({ success: false, message: "name cannot be empty" });
@@ -170,6 +197,25 @@ exports.updateWallet = async (req, res) => {
     }
 
     await row.save();
+    await appendAdminHistory(
+      `Wallet updated. Wallet #${row.id} (${row.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "wallet_updated",
+          actorId,
+          walletId: row.id,
+          before,
+          after: {
+            name: row.name,
+            visibility: row.visibility,
+            ownerUserId: row.ownerUserId || null,
+            sortOrder: row.sortOrder,
+            isActive: row.isActive,
+            imgUrl: row.imgUrl || null,
+          },
+        },
+      }
+    );
     return res.json({ success: true, data: row });
   } catch (err) {
 
@@ -183,8 +229,26 @@ exports.deleteWallet = async (req, res) => {
     const { walletId } = req.params;
     const row = await Wallet.findByPk(walletId);
     if (!row) return res.status(404).json({ success: false, message: "Wallet not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      walletId: row.id,
+      mobileBankingId: row.mobileBankingId,
+      name: row.name,
+      visibility: row.visibility,
+      ownerUserId: row.ownerUserId || null,
+    };
 
-    await row.destroy(); // cascade থাকলে numbers ও delete হবে
+    await row.destroy();
+    await appendAdminHistory(
+      `Wallet deleted. Wallet #${snapshot.walletId} (${snapshot.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "wallet_deleted",
+          actorId,
+          ...snapshot,
+        },
+      }
+    );
     return res.json({ success: true, message: "Deleted" });
   } catch (err) {
 
@@ -243,6 +307,22 @@ exports.addWalletNumber = async (req, res) => {
       isActive: typeof isActive === "boolean" ? isActive : true,
     });
 
+    const actorId = req.user?.id || req.userId || null;
+    await appendAdminHistory(
+      `Wallet number added. Wallet #${wallet.id}, number #${row.id}, by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "wallet_number_added",
+          actorId,
+          walletId: wallet.id,
+          walletNumberId: row.id,
+          number: row.number,
+          label: row.label || null,
+          isActive: row.isActive,
+        },
+      }
+    );
+
     return res.json({ success: true, data: row });
   } catch (err) {
 
@@ -257,8 +337,26 @@ exports.deleteWalletNumber = async (req, res) => {
 
     const row = await WalletNumber.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Number not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      walletNumberId: row.id,
+      walletId: row.walletId,
+      number: row.number,
+      label: row.label || null,
+      isActive: row.isActive,
+    };
 
     await row.destroy();
+    await appendAdminHistory(
+      `Wallet number deleted. Number #${snapshot.walletNumberId} from wallet #${snapshot.walletId} by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "wallet_number_deleted",
+          actorId,
+          ...snapshot,
+        },
+      }
+    );
     return res.json({ success: true, message: "Deleted" });
   } catch (err) {
 

@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const Offer = require("../models/Offer");
 const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const cleanPath = (v) => String(v || "").trim().replace(/\\/g, "/");
 
@@ -106,6 +107,20 @@ exports.adminCreateOffer = async (req, res) => {
       startAt: startAt ? new Date(startAt) : null,
       endAt: endAt ? new Date(endAt) : null,
     });
+    const actorId = req.user?.id || req.userId || null;
+    await appendAdminHistory(
+      `Offer created. Offer #${row.id} (${row.title}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "offer_created",
+          actorId,
+          offerId: row.id,
+          title: row.title,
+          type: row.type,
+          isActive: row.isActive,
+        },
+      }
+    );
 
     res.status(201).json({ success: true, offer: row });
   } catch (e) {
@@ -120,6 +135,13 @@ exports.adminUpdateOffer = async (req, res) => {
 
     const row = await Offer.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Offer not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const before = {
+      title: row.title,
+      type: row.type,
+      isActive: row.isActive,
+      sortOrder: row.sortOrder,
+    };
 
     const patch = { ...req.body };
     if (patch.description !== undefined) patch.description = patch.description ? String(patch.description) : null;
@@ -131,6 +153,23 @@ exports.adminUpdateOffer = async (req, res) => {
     if (patch.endAt !== undefined) patch.endAt = patch.endAt ? new Date(patch.endAt) : null;
 
     await row.update(patch);
+    await appendAdminHistory(
+      `Offer updated. Offer #${row.id} (${row.title}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "offer_updated",
+          actorId,
+          offerId: row.id,
+          before,
+          after: {
+            title: row.title,
+            type: row.type,
+            isActive: row.isActive,
+            sortOrder: row.sortOrder,
+          },
+        },
+      }
+    );
 
     res.json({ success: true, offer: row });
   } catch (e) {
@@ -145,6 +184,13 @@ exports.adminDeleteOffer = async (req, res) => {
 
     const row = await Offer.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Offer not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      offerId: row.id,
+      title: row.title,
+      type: row.type,
+      isActive: row.isActive,
+    };
 
     const imagePath = row.imageUrl;
     await row.destroy();
@@ -157,6 +203,17 @@ exports.adminDeleteOffer = async (req, res) => {
 
       }
     }
+
+    await appendAdminHistory(
+      `Offer deleted. Offer #${snapshot.offerId} (${snapshot.title}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "offer_deleted",
+          actorId,
+          ...snapshot,
+        },
+      }
+    );
 
     res.json({ success: true, message: "Offer deleted", imageRemoved });
   } catch (e) {

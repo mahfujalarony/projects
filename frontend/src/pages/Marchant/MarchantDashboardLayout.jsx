@@ -152,7 +152,7 @@ const MerchantDashboardLayout = () => {
         margin: "0 10px 10px 10px",
         cursor: "pointer",
       }}
-      onClick={() => navigate("/merchant/my-store")}
+      onClick={() => navigate("/")}
     >
       {siteLogo ? (
         <img src={siteLogo} alt="Logo" style={{ height: 40 }} />
@@ -228,7 +228,7 @@ const MerchantDashboardLayout = () => {
               <div
                 onClick={() => {
                   setDrawerVisible(false);
-                  navigate("/merchant/my-store");
+                  navigate("/");
                 }}
                 style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", minWidth: 0 }}
               >

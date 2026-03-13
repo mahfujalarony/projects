@@ -1,4 +1,5 @@
 const AppSetting = require("../models/AppSetting");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const normalizeStoryDuration = (value) => {
   const n = Math.round(Number(value));
@@ -30,9 +31,24 @@ exports.getSettings = async (req, res) => {
 exports.updateSettings = async (req, res) => {
   try {
     const updates = req.body; // { deliveryCharge: 100, ... }
+    const changedKeys = [];
     for (const [key, rawVal] of Object.entries(updates)) {
       const val = key === "storyDurationHours" ? normalizeStoryDuration(rawVal) : rawVal;
       await AppSetting.upsert({ key, value: JSON.stringify(val) });
+      changedKeys.push(key);
+    }
+    const actorId = req.user?.id || req.userId || null;
+    if (changedKeys.length) {
+      await appendAdminHistory(
+        `Settings updated by admin/subadmin #${actorId || "unknown"}. Keys: ${changedKeys.join(", ")}.`,
+        {
+          meta: {
+            type: "settings_updated",
+            actorId,
+            changedKeys,
+          },
+        }
+      );
     }
     res.json({ success: true, message: "Settings updated" });
   } catch (err) {

@@ -359,6 +359,11 @@ exports.updateStory = async (req, res) => {
     }
 
     const { isActive, title, expiresAt } = req.body || {};
+    const before = {
+      title: story.title || null,
+      isActive: story.isActive,
+      expiresAt: story.expiresAt,
+    };
 
     if (isActive !== undefined) story.isActive = !!isActive;
     if (title !== undefined) story.title = String(title).trim() || null;
@@ -371,6 +376,23 @@ exports.updateStory = async (req, res) => {
     }
 
     await story.save();
+    await appendAdminHistory(
+      `Story updated by merchant user #${userId}. Story #${story.id}.`,
+      {
+        meta: {
+          type: "merchant_story_updated",
+          userId,
+          merchantId,
+          storyId: story.id,
+          before,
+          after: {
+            title: story.title || null,
+            isActive: story.isActive,
+            expiresAt: story.expiresAt,
+          },
+        },
+      }
+    );
     return res.json({ success: true, message: "Story updated", story });
   } catch (e) {
 
@@ -398,9 +420,26 @@ exports.deleteStory = async (req, res) => {
     if (!story || story.merchantId !== merchantId) {
       return res.status(404).json({ success: false, message: "Story not found" });
     }
+    const snapshot = {
+      storyId: story.id,
+      title: story.title || null,
+      isActive: story.isActive,
+      expiresAt: story.expiresAt,
+    };
 
     await deleteStoryMediaFiles(story);
     await story.destroy();
+    await appendAdminHistory(
+      `Story deleted by merchant user #${userId}. Story #${snapshot.storyId}.`,
+      {
+        meta: {
+          type: "merchant_story_deleted",
+          userId,
+          merchantId,
+          ...snapshot,
+        },
+      }
+    );
     return res.json({ success: true, message: "Story deleted" });
   } catch (e) {
 

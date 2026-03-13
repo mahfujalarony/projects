@@ -1,5 +1,6 @@
 // controllers/mobileBankingController.js
 const MobileBanking = require("../models/MobileBanking");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 const asPositiveNumber = (v) => {
@@ -37,6 +38,20 @@ exports.createMobileBanking = async (req, res) => {
       dollarRate: rate,
       isActive: typeof isActive === "boolean" ? isActive : true,
     });
+    const actorId = req.user?.id || req.userId || null;
+    await appendAdminHistory(
+      `Mobile banking created. #${row.id} (${row.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "mobile_banking_created",
+          actorId,
+          mobileBankingId: row.id,
+          name: row.name,
+          dollarRate: Number(row.dollarRate || 0),
+          isActive: row.isActive,
+        },
+      }
+    );
 
     return res.json({ success: true, data: row });
   } catch (err) {
@@ -75,6 +90,13 @@ exports.updateMobileBanking = async (req, res) => {
 
     const row = await MobileBanking.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const before = {
+      name: row.name,
+      dollarRate: Number(row.dollarRate || 0),
+      isActive: row.isActive,
+      imgUrl: row.imgUrl || null,
+    };
 
     if (name !== undefined) {
       if (!isNonEmpty(name)) {
@@ -110,6 +132,23 @@ exports.updateMobileBanking = async (req, res) => {
     if (typeof isActive === "boolean") row.isActive = isActive;
 
     await row.save();
+    await appendAdminHistory(
+      `Mobile banking updated. #${row.id} (${row.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "mobile_banking_updated",
+          actorId,
+          mobileBankingId: row.id,
+          before,
+          after: {
+            name: row.name,
+            dollarRate: Number(row.dollarRate || 0),
+            isActive: row.isActive,
+            imgUrl: row.imgUrl || null,
+          },
+        },
+      }
+    );
     return res.json({ success: true, data: row });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Server error" });
@@ -122,8 +161,25 @@ exports.deleteMobileBanking = async (req, res) => {
 
     const row = await MobileBanking.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Not found" });
+    const actorId = req.user?.id || req.userId || null;
+    const snapshot = {
+      mobileBankingId: row.id,
+      name: row.name,
+      dollarRate: Number(row.dollarRate || 0),
+      isActive: row.isActive,
+    };
 
     await row.destroy();
+    await appendAdminHistory(
+      `Mobile banking deleted. #${snapshot.mobileBankingId} (${snapshot.name}) by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "mobile_banking_deleted",
+          actorId,
+          ...snapshot,
+        },
+      }
+    );
     return res.json({ success: true, message: "Deleted" });
   } catch (err) {
 

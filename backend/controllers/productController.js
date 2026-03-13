@@ -7,6 +7,7 @@ const SubCategory = require('../models/SubCategory');
 const MerchantProfile = require('../models/MerchantProfile');
 const Review = require('../models/Review');
 const { Op, Sequelize, fn, col } = require('sequelize');
+const { appendAdminHistory } = require("../utils/adminHistory");
 const RANK_CACHE_TTL_MS = 30 * 1000;
 const rankCache = new Map();
 
@@ -982,6 +983,22 @@ exports.createProduct = async (req, res) => {
         }
 
         const savedProduct = await Product.create(productData);
+        const actorId = req.user?.id || req.userId || null;
+        await appendAdminHistory(
+          `Admin product created. Product #${savedProduct.id} (${savedProduct.name}) by admin #${actorId || "unknown"}.`,
+          {
+            meta: {
+              type: "admin_product_created",
+              actorId,
+              productId: savedProduct.id,
+              name: savedProduct.name,
+              category: savedProduct.category || null,
+              subCategory: savedProduct.subCategory || null,
+              price: Number(savedProduct.price || 0),
+              stock: Number(savedProduct.stock || 0),
+            },
+          }
+        );
 
         res.status(201).json({
             message: "Product created successfully!",

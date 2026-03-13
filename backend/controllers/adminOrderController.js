@@ -158,6 +158,7 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     const currentStatus = orderItem.status;
+    const actorId = req.user?.id || req.userId || null;
 
     // terminal lock
     if (TERMINAL.has(currentStatus)) {
@@ -259,6 +260,24 @@ exports.updateOrderStatus = async (req, res) => {
       orderItem.trackingNote = trackingNote || null;
     }
     await orderItem.save({ transaction: t });
+
+    await appendAdminHistory(
+      `Order status changed. Order #${orderItem.id}: ${currentStatus} -> ${nextStatus} by admin #${actorId || "unknown"}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "order_status_updated",
+          actorId,
+          orderId: orderItem.id,
+          oldStatus: currentStatus,
+          newStatus: nextStatus,
+          trackingNumber: orderItem.trackingNumber || null,
+          trackingNote: orderItem.trackingNote || null,
+          userId: orderItem.userId,
+          merchantId: orderItem.matchMerchantId,
+        },
+      }
+    );
 
     const trackingSuffix =
       orderItem.trackingNumber && (nextStatus === "processing" || nextStatus === "shipped")

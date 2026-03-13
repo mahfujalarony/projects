@@ -4,7 +4,7 @@ import { Button, Alert, Grid, Carousel, message, Modal, Drawer } from "antd";
 import { ShoppingCartOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import Footer from "./../../components/common/Footer";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "../../redux/cartSlice";
 import ProductCard from "../../components/common/ProductCart";
 import Story from "../../components/ui/Story";
@@ -231,6 +231,7 @@ const BannerHeroSkeleton = () => (
 const HomeContent = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const cartItems = useSelector((state) => state.cart.items || []);
   const screens = useBreakpoint();
   const isMobile = !screens.sm;
   const [selectedOffer, setSelectedOffer] = React.useState(null);
@@ -405,6 +406,12 @@ const HomeContent = () => {
   const handleAddToCartClick = (product, qty = 1, sourceEl = null) => {
     if (!canAddToCart(product?.id)) {
       message.info("Already added. Please wait a moment.");
+      return false;
+    }
+    const existingQty =
+      cartItems.find((it) => String(it.id) === String(product?.id))?.qty || 0;
+    if (existingQty > 0) {
+      message.info(`Already in cart (${existingQty}). Quantity change from cart page.`);
       return false;
     }
     fetch(`${API_BASE_URL}/api/track/add-to-cart/${product.id}`, {

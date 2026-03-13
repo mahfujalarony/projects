@@ -19,6 +19,7 @@ const Notification = require("./Notification");
 const Offer = require("./Offer");
 const SubAdminPermission = require("./SubAdminPermission");
 const HomeCache = require("./HomeCache");
+const AdminHistory = require("./AdminHistory");
 
 // User <-> Address
 User.hasMany(Address, { foreignKey: "userId" });
@@ -146,4 +147,5 @@ module.exports = {
   Offer,
   SubAdminPermission,
   HomeCache,
+  AdminHistory,
 };

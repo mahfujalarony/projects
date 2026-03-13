@@ -14,6 +14,7 @@ const Wallet = require("../models/Wallet");
 const MobileBanking = require("../models/MobileBanking");
 const Notification = require("../models/Notification");
 const AppSetting = require("../models/AppSetting");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const UPLOAD_PROJECT_ROOT = path.resolve(__dirname, "../../upload");
 const UPLOADS_ROOT = path.resolve(UPLOAD_PROJECT_ROOT, "uploads");
@@ -305,6 +306,21 @@ exports.deleteOrphanImages = async (req, res) => {
         }
       }
     }
+
+    const actorId = req.user?.id || req.userId || null;
+    await appendAdminHistory(
+      `Media cleanup executed by admin #${actorId || "unknown"}. Deleted ${deleted}/${targetPaths.length} orphan image(s).`,
+      {
+        meta: {
+          type: "media_cleanup_deleted",
+          actorId,
+          requested: targetPaths.length,
+          deleted,
+          skippedCount: skipped.length,
+          minAgeMinutes,
+        },
+      }
+    );
 
     return res.json({
       success: true,

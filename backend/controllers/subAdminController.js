@@ -1,5 +1,6 @@
 const User = require("../models/Authentication");
 const SubAdminPermission = require("../models/SubAdminPermission");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const PERMISSIONS = [
   "create_products",
@@ -55,6 +56,12 @@ exports.setSubAdminPermissions = async (req, res) => {
     const incoming = Array.isArray(req.body?.permissions) ? req.body.permissions : [];
 
     const clean = [...new Set(incoming.map(String))].filter((p) => VALID.has(p));
+    const actorId = req.user?.id || req.userId || null;
+    const previous = await SubAdminPermission.findAll({
+      where: { userId: subAdminId },
+      attributes: ["permKey"],
+      raw: true,
+    });
 
     const user = await User.findByPk(subAdminId);
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -64,6 +71,19 @@ exports.setSubAdminPermissions = async (req, res) => {
     if (clean.length) {
       await SubAdminPermission.bulkCreate(clean.map((permKey) => ({ userId: subAdminId, permKey })));
     }
+
+    await appendAdminHistory(
+      `Subadmin permissions updated for user #${subAdminId} by admin #${actorId || "unknown"}.`,
+      {
+        meta: {
+          type: "subadmin_permissions_updated",
+          actorId,
+          userId: subAdminId,
+          before: previous.map((x) => x.permKey),
+          after: clean,
+        },
+      }
+    );
 
     return res.json({ success: true, userId: subAdminId, permissions: clean });
   } catch (e) {
