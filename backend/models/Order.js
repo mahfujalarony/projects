@@ -24,6 +24,11 @@ const OrderItem = sequelize.define('OrderItem', {
     allowNull: false,
   },
 
+  orderGroupId: {
+    type: DataTypes.STRING(60),
+    allowNull: true,
+  },
+
   paymentMethod: {
     type: DataTypes.STRING,
     allowNull: false,

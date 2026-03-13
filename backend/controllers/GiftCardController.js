@@ -3,6 +3,7 @@ const sequelize = require('../config/db');
 const GiftCard = require('../models/GiftCard');
 const User = require('../models/Authentication');
 const { Transaction } = require('sequelize');
+const { addMoney2, subMoney2, toMoney2 } = require("../utils/money");
 
 // Generate a unique gift card code: GIFT-XXXX-XXXX-XXXX
 const generateCode = () => {
@@ -35,6 +36,11 @@ const createGiftCard = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Amount must be greater than 0" });
     }
+    const amtFixed = toMoney2(amt);
+    if (!amtFixed) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+    }
 
     // ✅ Lock sender row so balance can't be double-spent concurrently
     const sender = await User.findByPk(senderId, {
@@ -56,7 +62,12 @@ const createGiftCard = async (req, res) => {
     }
 
     // ✅ Deduct amount from sender balance (within transaction)
-    sender.balance = senderBalance - amt;
+      const nextSenderBalance = subMoney2(senderBalance, amtFixed);
+    if (!nextSenderBalance) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Invalid balance calculation" });
+    }
+    sender.balance = nextSenderBalance;
     await sender.save({ transaction: t });
 
     // ✅ Generate unique code (retry if collision)
@@ -93,7 +104,7 @@ const createGiftCard = async (req, res) => {
     const giftCard = await GiftCard.create(
       {
         code,
-        amount: amt,
+        amount: amtFixed,
         message: message || null,
         createdBy: senderId,
         expiresAt,
@@ -187,7 +198,11 @@ const claimGiftCard = async (req, res) => {
     }, { transaction: t });
 
     // Add balance to user
-    const newBalance = parseFloat(claimer.balance) + parseFloat(giftCard.amount);
+    const newBalance = addMoney2(claimer.balance, giftCard.amount);
+    if (!newBalance) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Invalid balance calculation" });
+    }
     await claimer.update({ balance: newBalance }, { transaction: t });
 
     await t.commit();

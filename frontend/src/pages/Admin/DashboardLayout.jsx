@@ -15,7 +15,8 @@ import {
   Search,
   Wallet,
   DollarSign,
-  Trash2
+  Trash2,
+  History as HistoryIcon
 } from "lucide-react";
 import { Button, Layout, Menu, theme, Drawer, Badge, Input, Grid } from "antd";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
@@ -104,6 +105,11 @@ const DashboardLayout = () => {
       key: "/admin/settings",
       icon: <Settings size={18} />,
       label: "Settings",
+    },
+    {
+      key: "/admin/history",
+      icon: <HistoryIcon size={18} />,
+      label: "History",
     }
   ];
 

@@ -48,7 +48,15 @@ const getFullImageUrl = (imgPath) => {
 };
 
 /* Generic lazy image — shows shimmer until loaded, fades in smoothly */
-const LazyImg = ({ src, alt, className = "", imgClassName = "", hoverScale = false }) => {
+const LazyImg = ({
+  src,
+  alt,
+  className = "",
+  imgClassName = "",
+  hoverScale = false,
+  loading = "lazy",
+  fetchPriority = "auto",
+}) => {
   const [loaded, setLoaded] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
   return (
@@ -62,7 +70,9 @@ const LazyImg = ({ src, alt, className = "", imgClassName = "", hoverScale = fal
         <img
           src={src}
           alt={alt}
-          loading="lazy"
+          loading={loading}
+          fetchPriority={fetchPriority}
+          decoding="async"
           onLoad={() => setLoaded(true)}
           onError={() => { setFailed(true); setLoaded(false); }}
           className={`w-full h-full object-cover transition-opacity duration-500 ${
@@ -79,10 +89,10 @@ const LazyImg = ({ src, alt, className = "", imgClassName = "", hoverScale = fal
 /* ── Skeleton for horizontal scroll cards (Trending / New Arrivals) ── */
 const HorizontalCardSkeleton = ({ index = 0, accentColor = "#e5e7eb" }) => (
   <div
-    className="skeleton-card min-w-[170px] w-[170px] bg-white rounded-xl border border-gray-100 overflow-hidden flex flex-col flex-shrink-0"
+    className="skeleton-card min-w-[170px] w-[170px] md:min-w-[200px] md:w-[200px] bg-white rounded-xl border border-gray-100 overflow-hidden flex flex-col flex-shrink-0"
     style={{ animationDelay: `${index * 80}ms` }}
   >
-    <div className="shimmer-block w-full h-40" style={{ borderRadius: 0 }} />
+    <div className="shimmer-block w-full h-40 md:h-48" style={{ borderRadius: 0 }} />
     <div className="p-3 flex flex-col flex-grow gap-1.5">
       <div className="shimmer-block h-2 w-12 rounded-full" />
       <div className="shimmer-block h-2 w-16 rounded-full" />
@@ -100,7 +110,7 @@ const HorizontalCardSkeleton = ({ index = 0, accentColor = "#e5e7eb" }) => (
 );
 
 /* ── Skeleton for Our Products grid (matches ProductCard) ── */
-const ProductSkeleton = ({ className = "", imgClass = "h-28 md:h-32", index = 0 }) => (
+const ProductSkeleton = ({ className = "", imgClass = "h-28 md:h-44", index = 0 }) => (
   <div
     className={`skeleton-card bg-white rounded-lg border border-gray-100 overflow-hidden flex flex-col ${className}`}
     style={{ animationDelay: `${index * 60}ms` }}
@@ -196,6 +206,15 @@ const writeHomeCache = (key, data) => {
   }
 };
 
+const isStoryVisible = (story) => {
+  if (!story) return false;
+  if (story.isActive !== undefined && !story.isActive) return false;
+  if (!story.expiresAt) return true;
+  const expiry = new Date(story.expiresAt).getTime();
+  if (!Number.isFinite(expiry)) return true;
+  return expiry > Date.now();
+};
+
 const BannerHeroSkeleton = () => (
   <div className="relative h-[200px] sm:h-[290px] md:h-[370px] lg:h-[460px] xl:h-[520px] overflow-hidden">
     <div className="shimmer-block absolute inset-0" style={{ borderRadius: 0, background: 'linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%)' }} />
@@ -240,6 +259,7 @@ const HomeContent = () => {
     },
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
     initialData: () => cachedStoriesEntry?.data,
     initialDataUpdatedAt: cachedStoriesEntry?.data?.length ? cachedStoriesEntry.ts : 0,
@@ -308,7 +328,10 @@ const HomeContent = () => {
     placeholderData: (prev) => prev,
   });
 
-  const stories = storiesQuery.data || [];
+  const stories = React.useMemo(
+    () => (Array.isArray(storiesQuery.data) ? storiesQuery.data : []).filter(isStoryVisible),
+    [storiesQuery.data]
+  );
   const homeSections = homeSectionsQuery.data || {};
   const newArrivals = homeSections.newArrivals || [];
   const trendingProducts = homeSections.trending || [];
@@ -462,12 +485,14 @@ const HomeContent = () => {
                 swipeToSlide
                 fade
               >
-                {homeBanners.map((b) => (
+                {homeBanners.map((b, i) => (
                   <div key={b.id}>
                     <div className="relative h-[200px] sm:h-[290px] md:h-[370px] lg:h-[460px] xl:h-[520px] overflow-hidden">
                       <LazyImg
                         src={b.image}
                         alt={b.title}
+                        loading={i === 0 ? "eager" : "lazy"}
+                        fetchPriority={i === 0 ? "high" : "auto"}
                         className="absolute inset-0 w-full h-full"
                         imgClassName="group-hover/banner:scale-105 transition-transform duration-[8s] ease-out"
                       />
@@ -559,7 +584,7 @@ const HomeContent = () => {
               <div
                 key={product.id}
                 onClick={() => navigate(`/products/${product.id}`)}
-                className="min-w-[170px] w-[170px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-amber-100 overflow-hidden group cursor-pointer relative"
+                className="min-w-[170px] w-[170px] md:min-w-[200px] md:w-[200px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-amber-100 overflow-hidden group cursor-pointer relative"
               >
                 {/* Rank badge */}
                 {idx < 3 && (
@@ -571,7 +596,7 @@ const HomeContent = () => {
                 <LazyImg
                   src={getFullImageUrl(product.images?.[0])}
                   alt={product.name}
-                  className="h-40 w-full"
+                  className="h-40 md:h-48 w-full"
                   hoverScale
                 />
                 <div className="p-3 flex flex-col flex-grow">
@@ -583,7 +608,7 @@ const HomeContent = () => {
                     {product.name}
                   </h3>
                   <div className="mt-auto flex items-center justify-between gap-1">
-                    <span className="text-base font-bold text-gray-900">${Number(product.price || 0).toLocaleString()}</span>
+                    <span className="text-base font-bold text-gray-900">${Number(product.price || 0).toFixed(2)}</span>
                     <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">
                       {Number(product.trending?.soldQty || 0) > 0 ? `${product.trending.soldQty} sold` : "Trending"}
                     </span>
@@ -633,7 +658,7 @@ const HomeContent = () => {
               <div
                 key={product.id}
                 onClick={() => navigate(`/products/${product.id}`)}
-                className="min-w-[170px] w-[170px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-emerald-100 overflow-hidden group cursor-pointer relative"
+                className="min-w-[170px] w-[170px] md:min-w-[200px] md:w-[200px] bg-white/95 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col snap-start border border-emerald-100 overflow-hidden group cursor-pointer relative"
               >
                 <span className="absolute top-2 left-2 z-10 bg-emerald-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow">
                   NEW
@@ -641,7 +666,7 @@ const HomeContent = () => {
                 <LazyImg
                   src={getFullImageUrl(product.images?.[0])}
                   alt={product.name}
-                  className="h-40 w-full"
+                  className="h-40 md:h-48 w-full"
                   hoverScale
                 />
                 <div className="p-3 flex flex-col flex-grow">
@@ -653,7 +678,7 @@ const HomeContent = () => {
                     {product.name}
                   </h3>
                   <div className="mt-auto flex items-center justify-between gap-1">
-                    <span className="text-base font-bold text-gray-900">${Number(product.price || 0).toLocaleString()}</span>
+                    <span className="text-base font-bold text-gray-900">${Number(product.price || 0).toFixed(2)}</span>
                     {product.averageRating > 0 ? (
                       <span className="text-[10px] text-amber-500 font-semibold">★ {Number(product.averageRating).toFixed(1)}</span>
                     ) : null}
@@ -742,9 +767,9 @@ const HomeContent = () => {
           </div>
 
           {productsLoading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 md:gap-4 mb-6">
               {Array.from({ length: 12 }).map((_, i) => (
-                <ProductSkeleton key={i} index={i} imgClass="h-28 md:h-32" />
+                <ProductSkeleton key={i} index={i} imgClass="h-28 md:h-44" />
               ))}
             </div>
           ) : ourProducts.length === 0 ? (
@@ -775,7 +800,7 @@ const HomeContent = () => {
                           See all <MoveRight size={14} />
                         </Link>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 md:gap-4">
                         {catProducts.map((p) => (
                           <ProductCard
                             key={p.id}
@@ -785,6 +810,7 @@ const HomeContent = () => {
                               price: parseFloat(p.price),
                               oldPrice: p.oldPrice ? parseFloat(p.oldPrice) : undefined,
                             }}
+                            imageClassName="h-28 md:h-44"
                             onAddToCart={(_, qty) => handleAddToCartClick(p, qty)}
                             onProductClick={() => handleProductCardOpen(p)}
                           />
@@ -831,6 +857,8 @@ const HomeContent = () => {
                 <img
                   src={getFullImageUrl(selectedOffer.imageUrl)}
                   alt={selectedOffer.title || "Offer"}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full max-h-[60vh] object-contain rounded-xl"
                 />
               </div>
@@ -885,6 +913,8 @@ const HomeContent = () => {
                 <img
                   src={getFullImageUrl(selectedOffer.imageUrl)}
                   alt={selectedOffer.title || "Offer"}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full max-h-[40vh] object-contain rounded-xl"
                 />
               </div>

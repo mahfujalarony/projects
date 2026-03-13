@@ -2,6 +2,14 @@ import React, { useMemo, useState } from "react";
 import StoryViewer from "./StoryViewer";
 
 const clean = (u) => (u ? String(u).replace(/\\/g, "/") : "");
+const isVisible = (s) => {
+  if (!s) return false;
+  if (s.isActive !== undefined && !s.isActive) return false;
+  if (!s.expiresAt) return true;
+  const expiry = new Date(s.expiresAt).getTime();
+  if (!Number.isFinite(expiry)) return true;
+  return expiry > Date.now();
+};
 
 export default function Story({ stories = [], loading = false }) {
   const [open, setOpen] = useState(false);
@@ -9,7 +17,7 @@ export default function Story({ stories = [], loading = false }) {
 
   // ✅ backend stories -> UI items
   const items = useMemo(() => {
-    return (Array.isArray(stories) ? stories : []).map((s, idx) => {
+    return (Array.isArray(stories) ? stories : []).filter(isVisible).map((s, idx) => {
       const merchant = s?.merchant || {};
       const user = merchant?.user || {};
 
@@ -77,6 +85,8 @@ export default function Story({ stories = [], loading = false }) {
                   <img
                     src={s.cover}
                     alt={s.merchantName}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform"
                     draggable={false}
                   />

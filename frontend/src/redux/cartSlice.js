@@ -15,6 +15,8 @@ const cartSlice = createSlice({
       const numericQty = Number(qty);
       const maxStock = Number(stock);
       const hasStock = Number.isFinite(maxStock) && maxStock > 0;
+
+      if (!Number.isFinite(numericPrice) || numericPrice < 0) return;
       
       const existing = state.items.find((it) => it.id === id);
       if (existing) {

@@ -4,6 +4,7 @@ import { Card, Avatar, Typography, Spin, Alert, Button, Row, Col, Statistic, Lis
 import { UserOutlined, ArrowLeftOutlined } from "@ant-design/icons";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const { Title, Text } = Typography;
 const API_BASE = API_BASE_URL;
@@ -77,7 +78,7 @@ const UserPublicProfile = () => {
         </Button>
 
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <Avatar size={80} src={profile.imageUrl} icon={!profile.imageUrl && <UserOutlined />} />
+          <Avatar size={80} src={normalizeImageUrl(profile.imageUrl)} icon={!profile.imageUrl && <UserOutlined />} />
           <div>
             <Title level={3} style={{ margin: 0 }}>
               {profile.name || `User #${profile.id}`}

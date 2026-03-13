@@ -9,9 +9,9 @@ const User = sequelize.define(
     name: { type: DataTypes.STRING, allowNull: false },
     email: { type: DataTypes.STRING, allowNull: true, unique: true },
     phone: { type: DataTypes.STRING, allowNull: true, unique: true },
-    balance: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    balance: { type: DataTypes.DECIMAL(18, 2), allowNull: false, defaultValue: 0 },
     password: { type: DataTypes.STRING, allowNull: false },
-    imageUrl: { type: DataTypes.STRING, allowNull: true },
+    imageUrl: { type: DataTypes.STRING(1024), allowNull: true },
     topupBlockedUntil: { type: DataTypes.DATE, allowNull: true },
     role: {
       type: DataTypes.ENUM("admin", "merchant", "user", "subadmin"),

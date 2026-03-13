@@ -255,6 +255,8 @@ export default function StoryViewer({
                     <img
                       src={activeStory.merchantAvatar}
                       alt={activeStory.merchantName}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover"
                       draggable={false}
                     />

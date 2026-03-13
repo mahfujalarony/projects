@@ -5,8 +5,13 @@ const Wallet = require("../models/Wallet");
 const WalletNumber = require("../models/WalletNumber");
 const BalanceTopupRequest = require("../models/BalanceTopupRequest");
 const User = require("../models/Authentication");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
+const asPositiveNumber = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 const asMoney = (v) => {
   const n = Number(v);
@@ -118,8 +123,10 @@ exports.createTopupRequest = async (req, res) => {
     if (!isNonEmpty(senderNumber)) {
       return res.status(400).json({ success: false, message: "senderNumber is required" });
     }
-    const amt = asMoney(amount);
-    if (!amt) return res.status(400).json({ success: false, message: "amount must be > 0" });
+    const localAmountNum = asPositiveNumber(amount);
+    if (!localAmountNum) {
+      return res.status(400).json({ success: false, message: "amount must be > 0" });
+    }
 
     if (!isNonEmpty(transactionId)) {
       return res.status(400).json({ success: false, message: "transactionId is required" });
@@ -134,13 +141,14 @@ exports.createTopupRequest = async (req, res) => {
     const txExists = await BalanceTopupRequest.findOne({
       where: {
         transactionId: txId,
+        mobileBankingId: Number(mobileBankingId),
         status: { [Op.in]: ["pending", "approved"] },
       },
     });
     if (txExists) {
       return res.status(409).json({
         success: false,
-        message: "This transaction ID is already used in a pending/approved request",
+        message: "This transaction ID is already used in a pending/approved request for this provider",
       });
     }
 
@@ -148,6 +156,14 @@ exports.createTopupRequest = async (req, res) => {
     const provider = await MobileBanking.findByPk(mobileBankingId);
     if (!provider || !provider.isActive) {
       return res.status(400).json({ success: false, message: "Invalid mobile banking" });
+    }
+    const rateNum = asPositiveNumber(provider?.dollarRate);
+    if (!rateNum) {
+      return res.status(400).json({ success: false, message: "Invalid mobile banking dollar rate" });
+    }
+    const usdAmount = asMoney(localAmountNum / rateNum);
+    if (!usdAmount) {
+      return res.status(400).json({ success: false, message: "Converted amount must be > 0" });
     }
 
     const wallet = await Wallet.findOne({
@@ -175,10 +191,29 @@ exports.createTopupRequest = async (req, res) => {
       walletId: wallet.id,
       walletNumberId: wnum.id,
       senderNumber: senderNumber.trim(),
-      amount: amt,
+      amount: usdAmount,
       transactionId: txId,
       status: "pending",
     });
+
+    await appendAdminHistory(
+      `Balance topup request submitted. User #${userId}, request #${row.id}, amount ${Number(row.amount || 0).toFixed(
+        2
+      )}, tx ${row.transactionId}.`,
+      {
+        meta: {
+          type: "topup_request_created",
+          userId,
+          topupId: row.id,
+          amount: Number(row.amount || 0),
+          transactionId: row.transactionId,
+          mobileBankingId: row.mobileBankingId,
+          walletId: row.walletId,
+          walletNumberId: row.walletNumberId,
+          status: row.status,
+        },
+      }
+    );
 
     res.json({ success: true, message: "Topup request submitted", data: row });
   } catch (err) {

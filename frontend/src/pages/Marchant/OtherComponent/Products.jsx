@@ -259,9 +259,13 @@ const MerchantPickProducts = () => {
     return mapSubTree(getNodeChildren(currentCat));
   }, [currentCat]);
 
+  const getPickCharge = (product, qty) => {
+    const fullCost = Number(product?.price || 0) * Number(qty || 0);
+    return Number((fullCost * 0.5).toFixed(2));
+  };
+
   const canAfford = (product, qty) => {
-    const unit = Number(product?.price || 0);
-    return balance >= unit * qty;
+    return balance >= getPickCharge(product, qty);
   };
 
   const canStock = (product, qty) => Number(product?.stock || 0) >= qty;
@@ -269,8 +273,9 @@ const MerchantPickProducts = () => {
   const handlePick = async (product) => {
     const pid = product.id;
     const qty = Number(qtyMap[pid] || 1);
-    const cost = Number(product.price || 0) * qty;
-    const remaining = balance - cost;
+    const fullCost = Number(product.price || 0) * qty;
+    const charge = getPickCharge(product, qty);
+    const remaining = balance - charge;
 
     if (!canStock(product, qty)) return message.error("Admin stock enough না");
     if (!canAfford(product, qty)) return message.error("Balance কম");
@@ -281,10 +286,11 @@ const MerchantPickProducts = () => {
         <div>
           <p>Are you sure you want to add this to your store?</p>
           <div style={{ marginTop: 10 }}>
-            <div>Current Balance: <b>${balance.toLocaleString()}</b></div>
-            <div>Total Cost: <b style={{ color: "red" }}>${cost.toLocaleString()}</b></div>
+            <div>Current Balance: <b>${Number(balance || 0).toFixed(2)}</b></div>
+            <div>Product Total: <b>${Number(fullCost || 0).toFixed(2)}</b></div>
+            <div>Charge (50%): <b style={{ color: "red" }}>${Number(charge || 0).toFixed(2)}</b></div>
             <div style={{ borderTop: "1px solid #eee", marginTop: 5, paddingTop: 5 }}>
-              Remaining Balance: <b style={{ color: "green" }}>${remaining.toLocaleString()}</b>
+              Remaining Balance: <b style={{ color: "green" }}>${Number(remaining || 0).toFixed(2)}</b>
             </div>
           </div>
         </div>
@@ -382,7 +388,7 @@ const MerchantPickProducts = () => {
                 <Spin size="small" />
               ) : (
                 <Tag color="green" style={{ marginRight: 0 }}>
-                  ${Number(balance || 0).toLocaleString()}
+                  ${Number(balance || 0).toFixed(2)}
                 </Tag>
               )}
             </div>
@@ -544,7 +550,7 @@ const MerchantPickProducts = () => {
                   </div>
 
                   <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#444" }}>
-                    <span style={{ fontWeight: 800 }}>${Number(p.price || 0).toLocaleString()}</span>
+                    <span style={{ fontWeight: 800 }}>${Number(p.price || 0).toFixed(2)}</span>
                     <span>Stock: {p.stock ?? 0}</span>
                   </div>
 
@@ -576,7 +582,7 @@ const MerchantPickProducts = () => {
                   </div>
 
                   <div style={{ marginTop: 6, fontSize: 11, color: "#777" }}>
-                    Cost: ${(Number(p.price || 0) * selectedQty).toLocaleString()}
+                    Charge (50%): ${getPickCharge(p, selectedQty).toFixed(2)}
                   </div>
                 </Card>
               );
@@ -638,7 +644,7 @@ const MerchantPickProducts = () => {
                 <span style={{ color: "#888" }}>Subcategory:</span> <strong>{viewProduct.subCategory || "N/A"}</strong>
               </div>
               <div style={{ background: "#fff", border: "1px solid #eee", padding: 8, borderRadius: 6 }}>
-                <span style={{ color: "#888" }}>Price:</span> <strong>${Number(viewProduct.price || 0).toLocaleString()}</strong>
+                <span style={{ color: "#888" }}>Price:</span> <strong>${Number(viewProduct.price || 0).toFixed(2)}</strong>
               </div>
               <div style={{ background: "#fff", border: "1px solid #eee", padding: 8, borderRadius: 6 }}>
                 <span style={{ color: "#888" }}>Stock:</span> <strong>{viewProduct.stock}</strong>

@@ -37,6 +37,10 @@ const API = axios.create({
 });
 
 const PRESET_AMOUNTS = [5, 10, 20, 50, 100, 200];
+const round2 = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
+};
 
 function GiftCardPreview({ amount, messageText, senderName, code }) {
   const prettyAmount = useMemo(() => {
@@ -292,9 +296,9 @@ export default function CreateGiftCard() {
     }
 
     const amount = parseFloat(values.amount);
-    const currentBalance = Number(currentUser?.balance || 0);
+    const currentBalance = round2(currentUser?.balance || 0);
     const nextBalance = Number.isFinite(currentBalance) && Number.isFinite(amount)
-      ? currentBalance - amount
+      ? round2(currentBalance - amount)
       : currentBalance;
 
     const confirmOk = await new Promise((resolve) => {

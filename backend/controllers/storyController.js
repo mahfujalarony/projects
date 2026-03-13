@@ -9,6 +9,8 @@ const User = require("../models/Authentication");
 const MerchentStore = require("../models/MerchentStore");
 const ProductDailyStat = require("../models/ProductDailyStat");
 const AppSetting = require("../models/AppSetting");
+const { subMoney2 } = require("../utils/money");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const now = () => new Date();
 const UPLOAD_ROOT = path.resolve(__dirname, "../../upload");
@@ -191,13 +193,19 @@ exports.createStory = async (req, res) => {
 
         const currentBalance = Number(user.balance || 0);
         if (currentBalance < storyFee) {
-          const err = new Error(`Insufficient balance. Story fee is BDT ${storyFee}`);
+          const err = new Error(`Insufficient balance. Story fee is USD ${storyFee}`);
           err.statusCode = 400;
           err.code = "INSUFFICIENT_BALANCE";
           throw err;
         }
 
-        user.balance = currentBalance - storyFee;
+        const nextUserBalance = subMoney2(currentBalance, storyFee);
+        if (!nextUserBalance) {
+          const err = new Error("Invalid balance calculation");
+          err.statusCode = 400;
+          throw err;
+        }
+        user.balance = nextUserBalance;
         await user.save({ transaction: t });
       }
 
@@ -230,6 +238,24 @@ exports.createStory = async (req, res) => {
         });
         await row.increment("views", { by: 1, transaction: t });
       }
+
+      await appendAdminHistory(
+        `Story published by merchant user #${userId}. Story #${created.id}, fee ${Number(storyFee || 0).toFixed(
+          2
+        )}, duration ${safeHours} hour(s).`,
+        {
+          transaction: t,
+          meta: {
+            type: "merchant_story_published",
+            userId,
+            merchantId,
+            storyId: created.id,
+            feeCharged: Number(storyFee || 0),
+            durationHours: safeHours,
+            productId: linkedProductId || null,
+          },
+        }
+      );
 
       return created;
     });

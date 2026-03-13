@@ -16,7 +16,7 @@ const BalanceTopupRequest = sequelize.define(
     // user যেই নাম্বার থেকে পাঠিয়েছে
     senderNumber: { type: DataTypes.STRING(40), allowNull: false },
 
-    amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
+    amount: { type: DataTypes.DECIMAL(18, 2), allowNull: false },
 
     transactionId: { type: DataTypes.STRING(120), allowNull: false },
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Avatar, Button, Card, Drawer, Form, Grid, Input, Modal, Popconfirm, Space, Switch, Tabs, message, Upload } from "antd";
+import { Avatar, Button, Card, Drawer, Form, Grid, Input, InputNumber, Modal, Popconfirm, Space, Switch, Tabs, message, Upload } from "antd";
 import { DeleteOutlined, UploadOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -135,6 +135,7 @@ export default function MobileBankingManager() {
       const payload = {
         name: values.name?.trim(),
         imgUrl: finalImgUrl,
+        dollarRate: Number(values.dollarRate),
         isActive: values.isActive ?? true,
       };
       await axios.post(API_BASE, payload, { headers });
@@ -153,7 +154,7 @@ export default function MobileBankingManager() {
     setEditFileList([]);
     editForm.setFieldsValue({
       name: row?.name || "",
-      imgUrl: row?.imgUrl || "",
+      dollarRate: Number(row?.dollarRate || 1),
       isActive: !!row?.isActive,
     });
     setEditOpen(true);
@@ -162,7 +163,7 @@ export default function MobileBankingManager() {
   const onUpdate = async () => {
     try {
       const values = await editForm.validateFields();
-      let finalImgUrl = values.imgUrl?.trim() || "";
+      let finalImgUrl = (editing?.imgUrl || "").trim();
 
       if (editFileList.length > 0) {
         const formData = new FormData();
@@ -178,7 +179,8 @@ export default function MobileBankingManager() {
         `${API_BASE}/${editing.id}`,
         {
           name: values.name?.trim(),
-          imgUrl: finalImgUrl,
+          ...(finalImgUrl ? { imgUrl: finalImgUrl } : {}),
+          dollarRate: Number(values.dollarRate),
           isActive: values.isActive,
         },
         { headers }
@@ -576,6 +578,9 @@ export default function MobileBankingManager() {
                                 <div style={{ fontSize: 11, color: r?.isActive ? "#16a34a" : "#64748b", marginTop: 2 }}>
                                   {r?.isActive ? "Active" : "Inactive"}
                                 </div>
+                                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+                                  Rate: 1 USD = {Number(r?.dollarRate || 1).toFixed(4)}
+                                </div>
                               </div>
                             </div>
 
@@ -604,7 +609,7 @@ export default function MobileBankingManager() {
                     layout="vertical"
                     form={createForm}
                     onFinish={onCreate}
-                    initialValues={{ isActive: true }}
+                    initialValues={{ isActive: true, dollarRate: 1 }}
                   >
                     <Form.Item
                       label="Name"
@@ -612,6 +617,14 @@ export default function MobileBankingManager() {
                       rules={[{ required: true, message: "Name required" }]}
                     >
                       <Input placeholder="e.g. bKash, Nagad etc." />
+                    </Form.Item>
+
+                    <Form.Item
+                      label="Dollar Rate (Local per USD)"
+                      name="dollarRate"
+                      rules={[{ required: true, message: "Dollar rate required" }]}
+                    >
+                      <InputNumber style={{ width: "100%" }} min={0.0001} step={0.01} />
                     </Form.Item>
 
                     <Form.Item label="Upload Logo">
@@ -689,6 +702,9 @@ export default function MobileBankingManager() {
                               </div>
                               <div style={{ fontSize: 12, color: r?.isActive ? "#16a34a" : "#64748b", marginTop: 2 }}>
                                 {r?.isActive ? "Active" : "Inactive"}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                                Rate: 1 USD = {Number(r?.dollarRate || 1).toFixed(4)}
                               </div>
                             </div>
                           </div>
@@ -835,6 +851,14 @@ export default function MobileBankingManager() {
             rules={[{ required: true, message: "Name required" }]}
           >
             <Input />
+          </Form.Item>
+
+          <Form.Item
+            label="Dollar Rate (Local per USD)"
+            name="dollarRate"
+            rules={[{ required: true, message: "Dollar rate required" }]}
+          >
+            <InputNumber style={{ width: "100%" }} min={0.0001} step={0.01} />
           </Form.Item>
 
 

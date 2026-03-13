@@ -7,6 +7,9 @@ const User = require("../models/Authentication");
 const ProductDailyStat = require("../models/ProductDailyStat");
 const Notification = require("../models/Notification");
 const AppSetting = require("../models/AppSetting");
+const { addMoney2, subMoney2, toMoney2 } = require("../utils/money");
+const crypto = require("crypto");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 // BD date string helper (Asia/Dhaka)
 const getBDDateString = () => {
@@ -83,9 +86,9 @@ exports.createCustomerOrder = async (req, res) => {
 
     const deliveryCharge = Number(dcInput || 0);
 
-    if (!addressId || !matchMerchantId) {
+    if (!addressId) {
       await t.rollback();
-      return res.status(400).json({ message: "addressId and matchMerchantId are required" });
+      return res.status(400).json({ message: "addressId is required" });
     }
 
     if (!isValidPaymentMethod(paymentMethod)) {
@@ -109,33 +112,89 @@ exports.createCustomerOrder = async (req, res) => {
         return res.status(400).json({ message: "Each item must have productId and name" });
       }
       const qty = Number(it.quantity);
-      const price = Number(it.price);
-
       if (!Number.isFinite(qty) || qty <= 0) {
         await t.rollback();
         return res.status(400).json({ message: "Invalid quantity in items" });
       }
-      if (!Number.isFinite(price) || price < 0) {
+    }
+
+    const sellerCommissionPercent = await getSellerCommissionPercent(t);
+
+    // products lock
+    const productIds = items.map((x) => x.productId);
+
+    const products = await MerchentStore.findAll({
+      where: { id: productIds },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    const productMap = new Map(products.map((p) => [String(p.id), p]));
+
+    // validate merchant + stock
+    for (const it of items) {
+      const p = productMap.get(String(it.productId));
+      if (!p) {
         await t.rollback();
-        return res.status(400).json({ message: "Invalid price in items" });
+        return res.status(404).json({ message: `Product not found: ${it.productId}` });
+      }
+
+      if (!p.merchantId) {
+        await t.rollback();
+        return res.status(400).json({ message: `Product ${p.id} missing merchant` });
+      }
+
+      const qty = Number(it.quantity);
+      if (Number(p.stock) < qty) {
+        await t.rollback();
+        return res.status(400).json({
+          message: `Not enough stock for ${p.name}. Available: ${p.stock}`,
+        });
       }
     }
 
-    // total calculate
-    const productsTotal = items.reduce(
-      (sum, it) => sum + Number(it.price) * Number(it.quantity),
-      0
-    );
-    const orderTotal = productsTotal + deliveryCharge;
-    const sellerCommissionPercent = await getSellerCommissionPercent(t);
-    const commissionAmount = Number(
-      ((productsTotal * sellerCommissionPercent) / 100).toFixed(2)
-    );
-    // Merchant receives product total PLUS platform commission (admin absorbs commission as incentive)
-    const merchantCreditTotal = Number((productsTotal + commissionAmount).toFixed(2));
+    // ✅ group items by merchant (server-side)
+    const merchantGroupMap = new Map(); // merchantId -> items
+    const merchantOrder = [];
+    for (const it of items) {
+      const p = productMap.get(String(it.productId));
+      const mid = Number(p?.merchantId);
+      if (!Number.isFinite(mid) || mid <= 0) {
+        await t.rollback();
+        return res.status(400).json({ message: "Invalid merchant for product" });
+      }
+      if (!merchantGroupMap.has(mid)) {
+        merchantGroupMap.set(mid, []);
+        merchantOrder.push(mid);
+      }
+      merchantGroupMap.get(mid).push(it);
+    }
+
+    // ✅ total calculate (server-side price)
+    let productsTotalAll = 0;
+    const merchantTotals = new Map(); // merchantId -> { productsTotal, merchantBonus, projectedSettlement, adminPortion }
+
+    for (const mid of merchantOrder) {
+      const list = merchantGroupMap.get(mid);
+      const rawProductsTotal = list.reduce((sum, it) => {
+        const p = productMap.get(String(it.productId));
+        const price = Number(p?.price);
+        const qty = Number(it.quantity);
+        if (!Number.isFinite(price)) return sum;
+        return sum + price * qty;
+      }, 0);
+      const productsTotal = Number(toMoney2(rawProductsTotal) || 0);
+      const halfPart = Number((productsTotal * 0.5).toFixed(2));
+      const merchantBonus = Number(((halfPart * sellerCommissionPercent) / 100).toFixed(2));
+      const projectedSettlement = Number((halfPart + merchantBonus).toFixed(2));
+      const adminPortion = Number((productsTotal - projectedSettlement).toFixed(2));
+      merchantTotals.set(mid, { productsTotal, merchantBonus, projectedSettlement, adminPortion });
+      productsTotalAll += productsTotal;
+    }
+
+    const orderTotal = Number(toMoney2(productsTotalAll + deliveryCharge) || 0);
 
     let user = null;
-    let merchant = null;
 
     // online paid হলে balance lock + deduct
     {
@@ -157,64 +216,25 @@ exports.createCustomerOrder = async (req, res) => {
         });
       }
 
-      user.balance = currentBalance - orderTotal;
+      const nextUserBalance = subMoney2(currentBalance, orderTotal);
+      if (!nextUserBalance) {
+        await t.rollback();
+        return res.status(400).json({ message: "Invalid balance calculation" });
+      }
+      user.balance = nextUserBalance;
       await user.save({ transaction: t });
-
-      // Credit Merchant with product total + configured commission amount.
-      merchant = await User.findByPk(matchMerchantId, {
-        transaction: t,
-        lock: t.LOCK.UPDATE,
-      });
-      if (merchant) {
-        merchant.balance = Number(merchant.balance || 0) + merchantCreditTotal;
-        await merchant.save({ transaction: t });
-      }
-
-      // Delivery charge is consumed (pays actual delivery cost) — not credited to any account
     }
-
-    // products lock
-    const productIds = items.map((x) => x.productId);
-
-    const products = await MerchentStore.findAll({
-      where: { id: productIds },
-      transaction: t,
-      lock: t.LOCK.UPDATE,
-    });
-
-    const productMap = new Map(products.map((p) => [String(p.id), p]));
-
-    // validate merchant + stock
-    for (const it of items) {
-      const p = productMap.get(String(it.productId));
-      if (!p) {
-        await t.rollback();
-        return res.status(404).json({ message: `Product not found: ${it.productId}` });
-      }
-
-      if (String(p.merchantId) !== String(matchMerchantId)) {
-        await t.rollback();
-        return res.status(400).json({
-          message: `Product ${p.id} does not belong to merchant ${matchMerchantId}`,
-        });
-      }
-
-      const qty = Number(it.quantity);
-      if (Number(p.stock) < qty) {
-        await t.rollback();
-        return res.status(400).json({
-          message: `Not enough stock for ${p.name}. Available: ${p.stock}`,
-        });
-      }
-    }
-
-    // ✅ UPDATE stock + soldCount + ProductDailyStat (same transaction)
+    // UPDATE stock + soldCount + ProductDailyStat (same transaction)
     const statDate = getBDDateString();
 
     for (const it of items) {
       const p = productMap.get(String(it.productId));
       const qty = Number(it.quantity);
-      const price = Number(it.price);
+      const price = Number(p?.price);
+      if (!Number.isFinite(price)) {
+        await t.rollback();
+        return res.status(400).json({ message: "Invalid product price" });
+      }
 
       // stock & soldCount
       p.stock = Number(p.stock) - qty;
@@ -244,25 +264,40 @@ exports.createCustomerOrder = async (req, res) => {
       );
     }
 
+    const checkoutGroupId =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `og_${Date.now()}_${userId}_${Math.random().toString(36).slice(2, 8)}`;
+
     // order items create
-    const rowsToCreate = items.map((it, idx) => {
-      const lineTotal = Number(it.price) * Number(it.quantity);
-      const lineCommission = Number(((lineTotal * sellerCommissionPercent) / 100).toFixed(2));
+    let deliveryApplied = false;
+    const rowsToCreate = items.map((it) => {
+      const p = productMap.get(String(it.productId));
+      const price = Number(p?.price);
+      const qty = Number(it.quantity);
+      const lineTotal = price * qty;
+      const lineHalfPart = Number((lineTotal * 0.5).toFixed(2));
+      const lineMerchantBonus = Number(((lineHalfPart * sellerCommissionPercent) / 100).toFixed(2));
+      const mid = Number(p?.merchantId);
+      const orderGroupId = `${checkoutGroupId}:${mid}`;
+      const deliveryForLine = !deliveryApplied ? deliveryCharge : 0;
+      deliveryApplied = true;
       return {
         userId,
         addressId,
-        matchMerchantId,
+        matchMerchantId: mid,
+        orderGroupId,
         paymentMethod,
         paymentStatus,
         productId: it.productId, 
         name: it.name,
-        price: it.price,
-        quantity: it.quantity,
+        price,
+        quantity: qty,
         imageUrl: it.imageUrl || null,
         status: "pending",
-        deliveryCharge: idx === 0 ? deliveryCharge : 0,
+        deliveryCharge: deliveryForLine,
         commissionPercent: sellerCommissionPercent,
-        commissionAmount: lineCommission,
+        commissionAmount: lineMerchantBonus,
       };
     });
 
@@ -277,25 +312,24 @@ exports.createCustomerOrder = async (req, res) => {
     const totalQty = items.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
     const notifications = [];
 
-    if (!merchant) {
-      merchant = await User.findByPk(matchMerchantId, { transaction: t });
-    }
-
-    if (merchant) {
-      const merchantMessage = `New order #${primaryOrderId} received (${items.length} item(s), qty ${totalQty}). Credited $${merchantCreditTotal} ($${productsTotal} sale + $${commissionAmount} platform bonus).`;
-
+    for (const mid of merchantOrder) {
+      const totals = merchantTotals.get(mid);
+      const list = merchantGroupMap.get(mid) || [];
+      const mQty = list.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
+      const merchantMessage = `New order #${primaryOrderId} received (${list.length} item(s), qty ${mQty}). Settlement on delivery: ${totals?.projectedSettlement || 0} (50% base return + ${sellerCommissionPercent}% bonus on remaining half).`;
       notifications.push({
-        userId: matchMerchantId,
+        userId: mid,
         type: "order",
         title: "New order received",
         message: merchantMessage,
         meta: {
           orderId: primaryOrderId,
           orderItemIds,
-          productsTotal,
+          productsTotal: totals?.productsTotal || 0,
           commissionPercent: sellerCommissionPercent,
-          commissionAmount,
-          creditedAmount: merchantCreditTotal,
+          projectedMerchantBonus: totals?.merchantBonus || 0,
+          projectedSettlement: totals?.projectedSettlement || 0,
+          projectedAdminPortion: totals?.adminPortion || 0,
           paymentStatus,
           route: "/merchant/my-orders",
         },
@@ -319,6 +353,27 @@ exports.createCustomerOrder = async (req, res) => {
     if (notifications.length) {
       await Notification.bulkCreate(notifications, { transaction: t });
     }
+
+    await appendAdminHistory(
+      `New checkout order placed by user #${userId}. Order #${primaryOrderId}, item(s): ${items.length}, qty: ${totalQty}, total: ${Number(
+        orderTotal || 0
+      ).toFixed(2)}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "order_placed",
+          userId,
+          orderId: primaryOrderId,
+          orderItemIds,
+          merchantIds: merchantOrder,
+          itemCount: items.length,
+          totalQuantity: totalQty,
+          orderTotal: Number(orderTotal || 0),
+          paymentMethod,
+          paymentStatus,
+        },
+      }
+    );
 
     await t.commit();
 
@@ -438,12 +493,6 @@ exports.cancelMyOrder = async (req, res) => {
 
     let balanceAfter;
 
-    const sellerCommissionPercent = await getSellerCommissionPercent(t);
-    const commissionForItem = Number(
-      ((itemPriceTotal * sellerCommissionPercent) / 100).toFixed(2)
-    );
-    const merchantDebitTotal = Number((itemPriceTotal + commissionForItem).toFixed(2));
-
     if (isPaid && refundAmount > 0) {
       // ✅ lock user row
       const user = await User.findByPk(userId, {
@@ -457,30 +506,14 @@ exports.cancelMyOrder = async (req, res) => {
       }
 
       const currentBalance = Number(user.balance || 0);
-      user.balance = currentBalance + refundAmount;
+      const nextUserBalance = addMoney2(currentBalance, refundAmount);
+      if (!nextUserBalance) {
+        await t.rollback();
+        return res.status(400).json({ message: "Invalid balance calculation" });
+      }
+      user.balance = nextUserBalance;
       await user.save({ transaction: t });
       balanceAfter = Number(user.balance);
-
-      // Reverse merchant credit: product amount + configured commission.
-      if (itemPriceTotal > 0) {
-        const merchant = await User.findByPk(item.matchMerchantId, {
-          transaction: t,
-          lock: t.LOCK.UPDATE,
-        });
-        if (merchant) {
-          merchant.balance = Number(merchant.balance || 0) - merchantDebitTotal;
-          await merchant.save({ transaction: t });
-        }
-      }
-
-      // ✅ Deduct from Admin (Reverse delivery charge)
-      if (itemDelivery > 0) {
-        const admin = await User.findOne({ where: { role: "admin" }, transaction: t, lock: t.LOCK.UPDATE });
-        if (admin) {
-          admin.balance = Number(admin.balance || 0) - itemDelivery;
-          await admin.save({ transaction: t });
-        }
-      }
     }
 
 
@@ -527,7 +560,7 @@ exports.cancelMyOrder = async (req, res) => {
           message: `Order #${item.id} has been cancelled by customer.`,
           meta: {
             orderId: item.id,
-            reversedAmount: isPaid ? merchantDebitTotal : 0,
+            reversedAmount: 0,
             route: "/merchant/my-orders",
           },
         },
@@ -549,3 +582,6 @@ exports.cancelMyOrder = async (req, res) => {
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
   }
 };
+
+
+

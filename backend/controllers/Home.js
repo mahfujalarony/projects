@@ -3,6 +3,13 @@ const ProductDailyStat = require("../models/ProductDailyStat");
 const MerchentStore = require("../models/MerchentStore");
 const User = require("../models/Authentication");
 const MerchentProfile = require("../models/MerchantProfile");
+const { redisGetJson, redisSetJson } = require("../utils/redisClient");
+
+const HOME_SECTIONS_CACHE_VERSION = "v1";
+const HOME_SECTIONS_CACHE_TTL_SECONDS = Math.max(
+  30,
+  Number(process.env.HOME_SECTIONS_CACHE_TTL_SECONDS || 120)
+);
 
 const cleanImages = (imgs = []) =>
   (Array.isArray(imgs) ? imgs : []).map((x) => (x || "").replace(/\\/g, "/"));
@@ -66,6 +73,12 @@ exports.getHomeSections = async (req, res) => {
   try {
     const days = Number(req.query.days || 7);
     const limit = Number(req.query.limit || 30);
+    const cacheKey = `home:sections:${HOME_SECTIONS_CACHE_VERSION}:days:${days}:limit:${limit}`;
+
+    const cached = await redisGetJson(cacheKey);
+    if (cached?.success && cached?.data) {
+      return res.json({ ...cached.data, cached: true });
+    }
 
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -293,7 +306,7 @@ exports.getHomeSections = async (req, res) => {
     // so ALL categories always appear regardless of total product count
     const ourProducts = await attachMerchantSummary(ourProductsPool);
 
-    return res.json({
+    const payload = {
       success: true,
       days,
       trending: rankedTrending,
@@ -303,7 +316,11 @@ exports.getHomeSections = async (req, res) => {
         products,
       })),
       ourProducts,
-    });
+    };
+
+    await redisSetJson(cacheKey, { success: true, data: payload }, HOME_SECTIONS_CACHE_TTL_SECONDS);
+
+    return res.json(payload);
   } catch (e) {
 
     return res

@@ -5,6 +5,9 @@ const MobileBanking = require("../models/MobileBanking");
 const Wallet = require("../models/Wallet");
 const WalletNumber = require("../models/WalletNumber");
 const sequelize = require("../config/db");
+const { addMoney2 } = require("../utils/money");
+const Notification = require("../models/Notification");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const clampInt = (v, d) => {
   const n = Number(v);
@@ -131,7 +134,12 @@ exports.approveTopup = async (req, res) => {
     }
 
     // balance add
-    user.balance = Number(user.balance || 0) + amt;
+    const nextBalance = addMoney2(user.balance, amt);
+    if (!nextBalance) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Invalid balance calculation" });
+    }
+    user.balance = nextBalance;
     await user.save({ transaction: t });
 
     // update request status
@@ -139,6 +147,41 @@ exports.approveTopup = async (req, res) => {
     row.adminNote = req.body?.adminNote ? String(req.body.adminNote).trim() : row.adminNote;
     row.approvedByAdminId = adminId; // optional column থাকলে
     await row.save({ transaction: t });
+
+    await appendAdminHistory(
+      `Topup approved. Request #${row.id}, user #${row.userId}, amount ${Number(row.amount || 0).toFixed(
+        2
+      )}, tx ${row.transactionId}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "topup_approved",
+          topupId: row.id,
+          userId: row.userId,
+          amount: Number(row.amount || 0),
+          transactionId: row.transactionId,
+          adminNote: row.adminNote || null,
+          status: row.status,
+        },
+      }
+    );
+
+    await Notification.create(
+      {
+        userId: row.userId,
+        type: "balance",
+        title: "Balance Topup Approved",
+        message: `Your balance topup has been approved. Amount: $${Number(row.amount || 0).toFixed(2)}.`,
+        meta: {
+          topupId: row.id,
+          mobileBankingId: row.mobileBankingId,
+          walletId: row.walletId,
+          walletNumberId: row.walletNumberId,
+          transactionId: row.transactionId,
+        },
+      },
+      { transaction: t }
+    );
 
     await t.commit();
     return res.json({ success: true, message: "Approved & balance added", data: { request: row, userBalance: user.balance } });
@@ -166,6 +209,37 @@ exports.rejectTopup = async (req, res) => {
     row.status = "rejected";
     row.adminNote = adminNote;
     await row.save();
+
+    await appendAdminHistory(
+      `Topup rejected. Request #${row.id}, user #${row.userId}, amount ${Number(row.amount || 0).toFixed(
+        2
+      )}, tx ${row.transactionId}. Reason: ${adminNote}`,
+      {
+        meta: {
+          type: "topup_rejected",
+          topupId: row.id,
+          userId: row.userId,
+          amount: Number(row.amount || 0),
+          transactionId: row.transactionId,
+          adminNote,
+          status: row.status,
+        },
+      }
+    );
+
+    await Notification.create({
+      userId: row.userId,
+      type: "balance",
+      title: "Balance Topup Rejected",
+      message: `Your balance topup was rejected. Reason: ${adminNote}.`,
+      meta: {
+        topupId: row.id,
+        mobileBankingId: row.mobileBankingId,
+        walletId: row.walletId,
+        walletNumberId: row.walletNumberId,
+        transactionId: row.transactionId,
+      },
+    });
 
     return res.json({ success: true, message: "Rejected", data: row });
   } catch (err) {
@@ -195,6 +269,18 @@ exports.blockUserTopup = async (req, res) => {
     user.topupBlockedUntil = base;
     await user.save();
 
+    await appendAdminHistory(
+      `Topup blocked for user #${user.id} by ${days} day(s). Until: ${new Date(user.topupBlockedUntil).toISOString()}.`,
+      {
+        meta: {
+          type: "topup_user_blocked",
+          userId: user.id,
+          days,
+          topupBlockedUntil: user.topupBlockedUntil,
+        },
+      }
+    );
+
     return res.json({
       success: true,
       message: `Topup blocked for ${days} day(s)`,
@@ -217,6 +303,16 @@ exports.unblockUserTopup = async (req, res) => {
 
     user.topupBlockedUntil = null;
     await user.save();
+
+    await appendAdminHistory(
+      `Topup block removed for user #${user.id}.`,
+      {
+        meta: {
+          type: "topup_user_unblocked",
+          userId: user.id,
+        },
+      }
+    );
 
     return res.json({
       success: true,

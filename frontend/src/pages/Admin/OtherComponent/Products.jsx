@@ -392,7 +392,7 @@ const AdminProducts = () => {
       dataIndex: "price",
       key: "price",
       width: 95,
-      render: (v) => `$${Number(v || 0).toLocaleString()}`,
+      render: (v) => `$${Number(v || 0).toFixed(2)}`,
       sorter: true,
     },
     {
@@ -597,7 +597,7 @@ const AdminProducts = () => {
                     </div>
 
                     <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 13 }}>
-                      <div><strong>Price:</strong> Tk {Number(r.price || 0).toLocaleString()}</div>
+                      <div><strong>Price:</strong> Tk {Number(r.price || 0).toFixed(2)}</div>
                       <div><strong>Stock:</strong> {Number(r.stock || 0)}</div>
                       <div>
                         <strong>Sold:</strong>{" "}

@@ -11,14 +11,13 @@ import {
   Tag,
   List,
   Image,
-  Popconfirm,
   Switch,
   Divider,
   Empty,
   Skeleton,
   Select,
 } from "antd";
-import { PlusOutlined, DeleteOutlined, UploadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { PlusOutlined, UploadOutlined, ReloadOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../../config/env";
@@ -219,21 +218,11 @@ export default function CreateStory() {
         setMyStories((prev) =>
           prev.map((s) => (s.id === story.id ? { ...s, isActive: checked } : s))
         );
-      } else {
-        message.error(res.data?.message || "Failed");
-      }
-    } catch (e) {
-
-      message.error(e.response?.data?.message || "Failed");
-    }
-  };
-
-  const deleteStory = async (storyId) => {
-    try {
-      const res = await axios.delete(`${API_BASE}/api/stories/${storyId}`, { headers });
-      if (res.data?.success) {
-        message.success("Deleted");
-        setMyStories((prev) => prev.filter((s) => s.id !== storyId));
+        try {
+          sessionStorage.removeItem("home:stories:v1");
+        } catch {
+          // ignore
+        }
       } else {
         message.error(res.data?.message || "Failed");
       }
@@ -256,10 +245,10 @@ export default function CreateStory() {
                 Upload images to 5001, then create a timed story for your shop.
               </Text>
               <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Tag color="blue">Story Fee: ${Number(storyFee || 0).toLocaleString()}</Tag>
+                <Tag color="blue">Story Fee: ${Number(storyFee || 0).toFixed(2)}</Tag>
                 <Tag color="purple">Duration: {durationLabel}</Tag>
                 <Tag color={Number(merchantBalance || 0) >= Number(storyFee || 0) ? "green" : "red"}>
-                  Balance: ${Number(merchantBalance || 0).toLocaleString()}
+                  Balance: ${Number(merchantBalance || 0).toFixed(2)}
                 </Tag>
               </div>
             </div>
@@ -412,17 +401,6 @@ export default function CreateStory() {
                               onChange={(checked) => toggleActive(s, checked)}
                             />
                           </Space>
-
-                          <Popconfirm
-                            title="Delete this story?"
-                            okText="Delete"
-                            okButtonProps={{ danger: true }}
-                            onConfirm={() => deleteStory(s.id)}
-                          >
-                            <Button danger icon={<DeleteOutlined />}>
-                              Delete
-                            </Button>
-                          </Popconfirm>
                         </Space>
                       </Space>
 

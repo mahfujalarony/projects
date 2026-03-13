@@ -9,7 +9,7 @@ import SubAdminModuleGuard from "./components/SubAdminModuleGuard.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import SubAdminGate from "./components/SubAdminGate.jsx";
 import { SUBADMIN_PERMS } from "./pages/SubAdmin/permissions.js";
-import { API_BASE_URL } from "./config/env";
+import { API_BASE_URL, UPLOAD_BASE_URL } from "./config/env";
 
 /* ─── Lazy imports ─── */
 const NotFound = lazy(() => import("./components/ui/NotFound.jsx"));
@@ -26,6 +26,7 @@ const CategoryManagement = lazy(() => import("./pages/Admin/OtherComponent/Categ
 const AdminOffers = lazy(() => import("./pages/Admin/OtherComponent/AdminOffers.jsx"));
 const SubAdminPermition = lazy(() => import("./pages/Admin/OtherComponent/SubAdminPermition.jsx"));
 const Settings = lazy(() => import("./pages/Admin/OtherComponent/Settings.jsx"));
+const History = lazy(() => import("./pages/Admin/OtherComponent/History.jsx"));
 const Wallet = lazy(() => import("./pages/Admin/OtherComponent/Wallet.jsx"));
 const BalanceTopup = lazy(() => import("./pages/Admin/OtherComponent/BalanceTopup.jsx"));
 const MobileBankingId = lazy(() => import("./pages/Admin/OtherComponent/MobileBankingId.jsx"));
@@ -62,6 +63,32 @@ const MyGiftCards = lazy(() => import("./components/common/MyGiftCards.jsx"));
 
 const SubAdminDashboardLayout = lazy(() => import("./pages/SubAdmin/SubAdminDashboardLayout.jsx"));
 const SubAdminHome = lazy(() => import("./pages/SubAdmin/SubAdminHome.jsx"));
+
+const resolveAssetUrl = (value = "") => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith("data:") || raw.startsWith("blob:")) {
+    return raw;
+  }
+  return `${UPLOAD_BASE_URL}/${raw.replace(/^\/+/, "")}`;
+};
+
+const setFavicon = (inputUrl = "") => {
+  const faviconUrl = resolveAssetUrl(inputUrl);
+  if (!faviconUrl) return;
+
+  let link = document.querySelector("link[rel~='icon']");
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+
+  const stamp = Date.now();
+  link.href = faviconUrl.includes("?")
+    ? `${faviconUrl}&v=${stamp}`
+    : `${faviconUrl}?v=${stamp}`;
+};
 
 /* ─── Suspense fallback shimmer (inline — HomeContent CSS not yet loaded) ─── */
 const suspenseShimmerStyle = `
@@ -225,28 +252,31 @@ function App() {
 
   // Browser tab title & favicon — backend settings থেকে
   useEffect(() => {
+    const applyMeta = (settings = {}) => {
+      const siteName = String(settings?.siteName || "").trim();
+      const siteLogoUrl = String(settings?.siteLogoUrl || "").trim();
+      if (siteName) document.title = siteName;
+      if (siteLogoUrl) setFavicon(siteLogoUrl);
+    };
+
     const loadAppMeta = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/settings`);
+        const res = await fetch(`${API_BASE_URL}/api/settings`, { cache: "no-store" });
         const json = await res.json();
         if (json?.success && json?.data) {
-          const { siteName, siteLogoUrl } = json.data;
-          if (siteName) document.title = siteName;
-          if (siteLogoUrl) {
-            let link = document.querySelector("link[rel~='icon']");
-            if (!link) {
-              link = document.createElement("link");
-              link.rel = "icon";
-              document.head.appendChild(link);
-            }
-            link.href = siteLogoUrl;
-          }
+          applyMeta(json.data);
         }
       } catch (err) {
 
       }
     };
+    const handleSettingsUpdate = (event) => {
+      applyMeta(event?.detail || {});
+    };
+
+    window.addEventListener("app-settings-updated", handleSettingsUpdate);
     loadAppMeta();
+    return () => window.removeEventListener("app-settings-updated", handleSettingsUpdate);
   }, []);
 
   useEffect(() => {
@@ -316,6 +346,7 @@ function App() {
               <Route path="users" element={<UserList />} />
               <Route path="subadmins" element={<SubAdminPermition />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="history" element={<History />} />
               <Route path="wallets" element={<Wallet />} />
               <Route path="wallets/:mobileBankingId" element={<MobileBankingId />} />
               <Route path="balance-topup" element={<BalanceTopup />} />

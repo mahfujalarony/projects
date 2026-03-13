@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import {
+import { 
   Card,
   Radio,
   Button,
@@ -28,6 +28,11 @@ const { useBreakpoint } = Grid;
 
 const API_BASE = API_BASE_URL;
 
+const round2 = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
+};
+
 const CheckoutPage = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -52,9 +57,8 @@ const CheckoutPage = () => {
 
   const hasAddress = addresses.length > 0;
 
-  const computedSubtotal = cartItems.reduce(
-    (sum, item) => sum + Number(item.price) * Number(item.qty),
-    0
+  const computedSubtotal = round2(
+    cartItems.reduce((sum, item) => sum + Number(item.price) * Number(item.qty), 0)
   );
 
   // ✅ Fetch global settings (delivery charge)
@@ -73,9 +77,9 @@ const CheckoutPage = () => {
   const totals = useMemo(
     () => ({
       subtotal: computedSubtotal,
-      shipping: deliveryCharge,
+      shipping: round2(deliveryCharge),
       discount: 0,
-      payable: computedSubtotal + deliveryCharge,
+      payable: round2(computedSubtotal + deliveryCharge),
     }),
     [computedSubtotal, deliveryCharge]
   );
@@ -215,7 +219,38 @@ const CheckoutPage = () => {
     dispatch(removeFromCart({ id }));
   };
 
-  const insufficient = Number(balance) < Number(totals.payable);
+  const handleDeleteAddress = async (id) => {
+    const token = getToken();
+    if (!token) return message.error("Please login first");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/me/address/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        message.error(data?.message || "Failed to delete address");
+        return;
+      }
+
+      setAddresses((prev) => {
+        const nextList = prev.filter((a) => a.id !== id);
+        if (String(selectedAddress) === String(id)) {
+          setSelectedAddress(nextList[0]?.id ?? null);
+        }
+        return nextList;
+      });
+      message.success("Address deleted");
+    } catch {
+      message.error("Failed to delete address");
+    }
+  };
+
+  const insufficient = round2(balance) < round2(totals.payable);
 
   const ensureLoggedIn = () => {
     const token = getToken();
@@ -232,61 +267,11 @@ const CheckoutPage = () => {
     return true;
   };
 
-  // ✅ Place Order (Balance required always)
-  const handlePlaceOrder = async () => {
-    const now = Date.now();
+  const submitOrder = async (payload, token, now) => {
     if (confirmCooldown || (now - lastConfirmRef.current < 60000)) {
       message.info("Please wait a minute for the next order.");
       return;
     }
-    if (!selectedAddress) return message.error("Please select an address");
-    if (cartItems.length === 0) return message.error("Your cart is empty");
-
-    const token = getToken();
-    if (!token) return message.error("Please login first");
-
-    const matchMerchantId = cartItems?.[0]?.merchantId;
-    if (!matchMerchantId) {
-      message.error("MerchantId missing in cart items. Add merchantId when adding to cart.");
-      return;
-    }
-
-    // all item same merchant
-    const mixed = cartItems.some((x) => String(x.merchantId) !== String(matchMerchantId));
-    if (mixed) {
-      message.error("Multiple merchants in cart. Please checkout one merchant at a time.");
-      return;
-    }
-
-    // ✅ realtime balance re-check before placing order
-    await fetchBalance();
-
-    // NOTE: setState async; so compute required & compare with latest known balance in state
-    // safer: fetch again from API result, but your API returns only data -> we used state
-    // We'll do a small delay-less check using current state after fetchBalance attempt:
-    const latestBalance = Number(balance);
-    if (latestBalance < Number(totals.payable)) {
-      message.error("Insufficient balance. Please add balance first.");
-      return;
-    }
-
-    const payload = {
-      addressId: Number(selectedAddress),
-      matchMerchantId: Number(matchMerchantId),
-
-      // ✅ fixed
-      paymentMethod: "balance",
-      paymentStatus: "paid",
-      deliveryCharge: deliveryCharge,
-
-      items: cartItems.map((item) => ({
-        productId: Number(item.id),
-        name: item.name,
-        price: Number(item.price),
-        quantity: Number(item.qty),
-        imageUrl: item.imageUrl || null,
-      })),
-    };
 
     try {
       lastConfirmRef.current = now;
@@ -332,6 +317,81 @@ const CheckoutPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ✅ Place Order (Balance required always)
+  const handlePlaceOrder = async () => {
+    const now = Date.now();
+    if (confirmCooldown || (now - lastConfirmRef.current < 60000)) {
+      message.info("Please wait a minute for the next order.");
+      return;
+    }
+    if (!selectedAddress) return message.error("Please select an address");
+    if (cartItems.length === 0) return message.error("Your cart is empty");
+
+    const token = getToken();
+    if (!token) return message.error("Please login first");
+
+    const matchMerchantId = cartItems?.[0]?.merchantId;
+
+    // ✅ realtime balance re-check before placing order
+    await fetchBalance();
+
+    const latestBalance = round2(balance);
+    if (latestBalance < round2(totals.payable)) {
+      message.error("Insufficient balance. Please add balance first.");
+      return;
+    }
+
+    const payload = {
+      addressId: Number(selectedAddress),
+      matchMerchantId: matchMerchantId ? Number(matchMerchantId) : undefined,
+
+      // ✅ fixed
+      paymentMethod: "balance",
+      paymentStatus: "paid",
+      deliveryCharge: deliveryCharge,
+
+      items: cartItems.map((item) => ({
+        productId: Number(item.id),
+        name: item.name,
+        quantity: Number(item.qty),
+        imageUrl: item.imageUrl || null,
+      })),
+    };
+
+    const balanceAfter = round2(latestBalance - totals.payable);
+
+    Modal.confirm({
+      title: "Confirm Order",
+      okText: `Pay $${Number(totals.payable).toFixed(2)}`,
+      cancelText: "Cancel",
+      content: (
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Items Total</span>
+            <b>${Number(totals.subtotal).toFixed(2)}</b>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Delivery Charge</span>
+            <b>${Number(totals.shipping).toFixed(2)}</b>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Total Payable</span>
+            <b>${Number(totals.payable).toFixed(2)}</b>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+            <span>Current Balance</span>
+            <b>${Number(latestBalance).toFixed(2)}</b>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Balance After</span>
+            <b>${Number(balanceAfter).toFixed(2)}</b>
+          </div>
+        </div>
+      ),
+      onOk: () => submitOrder(payload, token, now),
+    });
   };
 
   const cartSummary = (
@@ -591,6 +651,25 @@ const CheckoutPage = () => {
                       </Text>
                     </Space>
                   </Space>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                    <Popconfirm
+                      title="Delete this address?"
+                      okText="Delete"
+                      cancelText="Cancel"
+                      onConfirm={(e) => {
+                        e?.stopPropagation?.();
+                        handleDeleteAddress(addr.id);
+                      }}
+                    >
+                      <Button
+                        danger
+                        size="small"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Delete
+                      </Button>
+                    </Popconfirm>
+                  </div>
                 </Card>
               ))}
             </Space>

@@ -5,6 +5,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { setAuthState } from "../../redux/authSlice";
 import { UPLOAD_BASE_URL } from "../../config/env";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const API_BASE = API_BASE_URL;
 const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
@@ -198,7 +199,7 @@ const Profile = () => {
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
             <div className="flex flex-col items-start">
               <img
-                src={profile.imageUrl || "https://via.placeholder.com/120?text=User"}
+                src={normalizeImageUrl(profile.imageUrl) || "https://via.placeholder.com/120?text=User"}
                 alt="profile"
                 className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border"
               />
@@ -276,7 +277,7 @@ const Profile = () => {
                 <div>
                   <p className="text-white/80 text-sm">Available Balance</p>
                   <h2 className="text-3xl sm:text-4xl font-extrabold mt-1">
-                    ${Number(profile.balance || 0)}
+                    ${Number(profile.balance || 0).toFixed(2)}
                   </h2>
                   <p className="text-white/80 text-sm mt-2">
                     Use balance for faster checkout & special offers.

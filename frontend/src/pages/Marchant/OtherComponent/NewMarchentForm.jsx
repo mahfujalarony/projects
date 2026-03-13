@@ -232,7 +232,7 @@ const MerchantRegistration = () => {
                 Commission: {Number(settings?.sellerCommission || 0)}% per product sale
               </Tag>
               <Tag color="purple" style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.35 }}>
-                Story Post Fee: BDT {Number(settings?.storyPostFee || 0).toLocaleString()}
+                Story Post Fee: USD {Number(settings?.storyPostFee || 0).toFixed(2)}
               </Tag>
               <Tag color="green" style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.35 }}>
                 At least one payout method is required

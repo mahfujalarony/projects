@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircleFilled } from "@ant-design/icons";
+import { Popconfirm } from "antd";
 import { API_BASE_URL } from "../../config/env";
 
 const API_URL = API_BASE_URL;
@@ -209,10 +210,13 @@ const getToken = () => {
         )}
 
         {rows.map((r) => (
-          <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
+          <div
+            key={r.id}
+            className="rounded-xl border border-gray-200 bg-white p-4"
+          >
             <div className="flex items-center justify-between gap-2">
               <div className="truncate font-semibold">
-                #{r.id} — {r.name}
+                {r.name}
               </div>
 
               <span
@@ -228,19 +232,35 @@ const getToken = () => {
             <OrderStepper status={r.status} />
 
             <div className="mt-1 text-xs text-gray-500">
-              Qty: {r.quantity} • ${Number(r.price).toFixed(2)}
-              {Number(r.deliveryCharge) > 0 && (
-                <span> • Delivery: ${Number(r.deliveryCharge).toFixed(2)}</span>
+              Qty: {Number(r.quantity || 0)} • ${Number(r.price || 0).toFixed(2)}
+              {Number(r.deliveryCharge || 0) > 0 && (
+                <span> • Delivery: ${Number(r.deliveryCharge || 0).toFixed(2)}</span>
               )}
             </div>
 
             <div className="mt-1 text-xs font-semibold text-gray-700">
-              Total: ${Number(r.price * r.quantity + (r.deliveryCharge || 0)).toFixed(2)}
+              Total: ${Number((Number(r.price || 0) * Number(r.quantity || 0)) + Number(r.deliveryCharge || 0)).toFixed(2)}
             </div>
 
             <div className="mt-1 text-xs text-gray-500">
               Payment: {r.paymentMethod} •{" "}
               Paid
+            </div>
+            <div className="mt-2 flex items-center gap-3 rounded-lg border bg-gray-50 p-2">
+              {r.imageUrl ? (
+                <img
+                  src={r.imageUrl}
+                  alt={r.name}
+                  className="h-14 w-14 rounded-md border object-cover"
+                />
+              ) : (
+                <div className="h-14 w-14 rounded-md border bg-gray-100" />
+              )}
+              <div className="min-w-0 text-xs text-gray-600">
+                <div className="font-semibold text-gray-900 truncate">{r.name}</div>
+                <div>Unit: ${Number(r.price || 0).toFixed(2)}</div>
+                <div>Qty: {Number(r.quantity || 0)}</div>
+              </div>
             </div>
             {r.trackingNumber ? (
               <div className="mt-1 text-xs text-indigo-700">
@@ -255,12 +275,18 @@ const getToken = () => {
 
             {/* ❌ Cancel button — RIGHT PLACE */}
             {r.status === "pending" && (
-              <button
-                onClick={() => cancelOrder(r.id)}
-                className="mt-3 h-10 w-full rounded-md border border-red-300 bg-red-50 text-sm font-semibold text-red-700 hover:bg-red-100"
+              <Popconfirm
+                title="Cancel this order?"
+                okText="Yes, cancel"
+                cancelText="No"
+                onConfirm={() => cancelOrder(r.id)}
               >
-                Cancel Order
-              </button>
+                <button
+                  className="mt-3 h-9 rounded-full border border-red-200 bg-red-50 px-4 text-xs font-semibold text-red-700 hover:bg-red-100"
+                >
+                  Cancel Order
+                </button>
+              </Popconfirm>
             )}
 
             {/* ✅ Review Prompt for Delivered Orders */}
@@ -280,6 +306,7 @@ const getToken = () => {
           </div>
         ))}
       </div>
+
 
       {/* Pagination */}
       <div className="mt-4 flex items-center gap-2 text-sm">

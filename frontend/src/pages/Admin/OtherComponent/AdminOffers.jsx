@@ -347,6 +347,9 @@ const AdminOffers = () => {
         <div>
           <h2 className="text-xl font-semibold text-gray-800">Manage Offers</h2>
           <p className="text-xs text-gray-500">Create / update / delete offers and control homepage preview</p>
+          <p className="mt-1 text-xs text-gray-500">
+            Banner items appear at the top of the homepage. All other offers show in the Offers section.
+          </p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
           Add Offer

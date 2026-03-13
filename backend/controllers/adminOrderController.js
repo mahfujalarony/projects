@@ -7,6 +7,8 @@ const Notification = require("./../models/Notification");
 const sequelize = require("../config/db");
 const MerchentStore = require("../models/MerchentStore");
 const AppSetting = require("../models/AppSetting");
+const { addMoney2 } = require("../utils/money");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const STATUS_FLOW = ["pending", "processing", "shipped", "delivered"];
 const TERMINAL = new Set(["delivered", "cancelled"]);
@@ -182,41 +184,16 @@ exports.updateOrderStatus = async (req, res) => {
       const itemDelivery = Number(orderItem.deliveryCharge || 0);
       const refundAmount = itemPriceTotal + itemDelivery;
 
-      // Use the frozen commission stored at order time (fallback to current rate for old orders)
-      let commissionForItem = Number(orderItem.commissionAmount || 0);
-      if (commissionForItem === 0 && itemPriceTotal > 0) {
-        const sellerCommissionPercent = await getSellerCommissionPercent(t);
-        commissionForItem = Number(
-          ((itemPriceTotal * sellerCommissionPercent) / 100).toFixed(2)
-        );
-      }
-      const merchantDebitTotal = Number((itemPriceTotal + commissionForItem).toFixed(2));
-
       if (isPaid && refundAmount > 0) {
         // 1. Refund User
         const user = await User.findByPk(orderItem.userId, { transaction: t, lock: t.LOCK.UPDATE });
         if (user) {
-          user.balance = Number(user.balance || 0) + refundAmount;
+          const nextUserBalance = addMoney2(user.balance, refundAmount);
+          if (!nextUserBalance) throw new Error("Invalid user balance calculation");
+          user.balance = nextUserBalance;
           await user.save({ transaction: t });
         }
 
-        // 2. Deduct from Merchant (Product Price + Commission)
-        if (itemPriceTotal > 0) {
-          const merchant = await User.findByPk(orderItem.matchMerchantId, { transaction: t, lock: t.LOCK.UPDATE });
-          if (merchant) {
-            merchant.balance = Number(merchant.balance || 0) - merchantDebitTotal;
-            await merchant.save({ transaction: t });
-          }
-        }
-
-        // 3. Deduct from Admin (Delivery Charge)
-        if (itemDelivery > 0) {
-          const admin = await User.findOne({ where: { role: "admin" }, transaction: t, lock: t.LOCK.UPDATE });
-          if (admin) {
-            admin.balance = Number(admin.balance || 0) - itemDelivery;
-            await admin.save({ transaction: t });
-          }
-        }
       }
 
       // 4. Restore Stock
@@ -226,6 +203,54 @@ exports.updateOrderStatus = async (req, res) => {
         product.soldCount = Math.max(0, Number(product.soldCount || 0) - Number(orderItem.quantity || 0));
         await product.save({ transaction: t });
       }
+    }
+
+    if (nextStatus === "delivered") {
+      const itemPriceTotal = Number(orderItem.price) * Number(orderItem.quantity);
+      const halfPart = Number((itemPriceTotal * 0.5).toFixed(2));
+      const merchantRate =
+        Number(orderItem.commissionPercent || 0) > 0
+          ? Number(orderItem.commissionPercent || 0)
+          : await getSellerCommissionPercent(t);
+      const merchantBonus = Number(((halfPart * merchantRate) / 100).toFixed(2));
+      const merchantCreditTotal = Number((halfPart + merchantBonus).toFixed(2));
+      const adminPortion = Number((itemPriceTotal - merchantCreditTotal).toFixed(2));
+
+      const merchant = await User.findByPk(orderItem.matchMerchantId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (merchant && merchantCreditTotal > 0) {
+        const nextMerchantBalance = addMoney2(merchant.balance, merchantCreditTotal);
+        if (!nextMerchantBalance) throw new Error("Invalid merchant balance calculation");
+        merchant.balance = nextMerchantBalance;
+        await merchant.save({ transaction: t });
+      }
+
+      orderItem.commissionPercent = merchantRate;
+      orderItem.commissionAmount = merchantBonus;
+
+      await appendAdminHistory(
+        `Order #${orderItem.id} delivered. Merchant #${orderItem.matchMerchantId} settlement ${merchantCreditTotal.toFixed(
+          2
+        )} (base 50%: ${halfPart.toFixed(2)}, bonus ${merchantRate}%: ${merchantBonus.toFixed(
+          2
+        )}). Admin share (log only): ${adminPortion.toFixed(2)}.`,
+        {
+          transaction: t,
+          meta: {
+            type: "order_delivered_settlement",
+            orderId: orderItem.id,
+            merchantId: orderItem.matchMerchantId,
+            itemPriceTotal: Number(itemPriceTotal.toFixed(2)),
+            baseReturn: halfPart,
+            merchantRate,
+            merchantBonus,
+            merchantSettlement: merchantCreditTotal,
+            adminPortion,
+          },
+        }
+      );
     }
 
     orderItem.status = nextStatus;

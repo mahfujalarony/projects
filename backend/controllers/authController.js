@@ -26,6 +26,12 @@ const normalizePhone = (value) => {
 
 const isLikelyEmail = (value) => EMAIL_REGEX.test(String(value || "").trim());
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const normalizeGooglePhotoUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return null;
+  // Request a cleaner full-size style URL when Google sends size suffix like "=s96-c".
+  return raw.replace(/=s\d+-c$/i, "");
+};
 
 
 exports.register = async (req, res) => {
@@ -153,6 +159,8 @@ exports.googleLogin = async (req, res) => {
 
     let user = await User.findOne({ where: { email } });
 
+    const googlePicture = normalizeGooglePhotoUrl(payload?.picture);
+
     if (!user) {
       const fallbackPassword = await bcrypt.hash(`google_${payload?.sub || Date.now()}`, 10);
       user = await User.create({
@@ -160,10 +168,10 @@ exports.googleLogin = async (req, res) => {
         email,
         phone: null,
         password: fallbackPassword,
-        imageUrl: payload?.picture || null,
+        imageUrl: googlePicture,
       });
-    } else if (!user.imageUrl && payload?.picture) {
-      user.imageUrl = payload.picture;
+    } else if (googlePicture && String(user.imageUrl || "").trim() !== googlePicture) {
+      user.imageUrl = googlePicture;
       await user.save();
     }
 
@@ -342,4 +350,25 @@ exports.getCurrentUserAddresses = async (req, res) => {
     } catch (error) {
         return res.status(500).json({ success: false, message: 'Server error' });
     }
+};
+
+// delete address
+exports.deleteAddress = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid address id" });
+    }
+
+    const row = await Address.findOne({ where: { id, userId } });
+    if (!row) {
+      return res.status(404).json({ success: false, message: "Address not found" });
+    }
+
+    await row.destroy();
+    return res.status(200).json({ success: true, message: "Address deleted", id });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
 };

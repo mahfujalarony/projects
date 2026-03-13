@@ -131,23 +131,29 @@ const HomeLayout = () => {
 
   useEffect(() => {
     let ignore = false;
+    const applySiteMeta = (settings = {}) => {
+      const name = String(settings?.siteName || "").trim();
+      const logo = resolveLogoSrc(settings?.siteLogoUrl);
+      if (!ignore) setSiteMeta({ name, logo, loaded: true });
+    };
 
     (async () => {
       try {
-        const res = await fetch(API_SETTINGS);
+        const res = await fetch(API_SETTINGS, { cache: "no-store" });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.success || ignore) return;
-
-        const name = String(data?.data?.siteName || "").trim();
-        const logo = resolveLogoSrc(data?.data?.siteLogoUrl);
-        setSiteMeta({ name, logo, loaded: true });
+        applySiteMeta(data?.data || {});
       } catch {
         if (!ignore) setSiteMeta((prev) => ({ ...prev, loaded: true }));
       }
     })();
 
+    const handleSettingsUpdate = (event) => applySiteMeta(event?.detail || {});
+    window.addEventListener("app-settings-updated", handleSettingsUpdate);
+
     return () => {
       ignore = true;
+      window.removeEventListener("app-settings-updated", handleSettingsUpdate);
     };
   }, []);
 

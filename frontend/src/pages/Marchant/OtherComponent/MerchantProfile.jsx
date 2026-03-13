@@ -168,7 +168,7 @@ export default function MerchantProfile() {
       >
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
           <Text>
-            Current Balance: <Text strong>${Number(balance || 0).toLocaleString()}</Text>
+            Current Balance: <Text strong>${Number(balance || 0).toFixed(2)}</Text>
           </Text>
           <Text type="secondary">
             To request a withdrawal, please contact Support Chat or use the WhatsApp/Email set in admin settings.

@@ -137,6 +137,10 @@ export default function Orders() {
   const [draftStatusById, setDraftStatusById] = useState({});
   const [draftTrackingNumberById, setDraftTrackingNumberById] = useState({});
   const [draftTrackingNoteById, setDraftTrackingNoteById] = useState({});
+  const [groupDraftStatusByKey, setGroupDraftStatusByKey] = useState({});
+  const [groupTrackingNumberByKey, setGroupTrackingNumberByKey] = useState({});
+  const [groupTrackingNoteByKey, setGroupTrackingNoteByKey] = useState({});
+  const [groupUpdatingKey, setGroupUpdatingKey] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -158,11 +162,36 @@ export default function Orders() {
       return acc;
     }, {}), [rows]);
 
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const r of rows) {
+      const rawKey = String(r.orderGroupId || r.id);
+      const key = rawKey.includes(":") ? rawKey.split(":")[0] : rawKey;
+      if (!map.has(key)) {
+        map.set(key, { key, items: [], totalQty: 0, totalAmount: 0, createdAt: r.createdAt });
+      }
+      const g = map.get(key);
+      g.items.push(r);
+      g.totalQty += Number(r.quantity || 0);
+      g.totalAmount += Number(r.price || 0) * Number(r.quantity || 0) + Number(r.deliveryCharge || 0);
+      if (r.createdAt && (!g.createdAt || new Date(r.createdAt) < new Date(g.createdAt))) {
+        g.createdAt = r.createdAt;
+      }
+    }
+    return Array.from(map.values());
+  }, [rows]);
+
   const showToast = (type, text) => {
     if (!text) return;
     if (type === "success") return antdMessage.success(text);
     if (type === "warn") return antdMessage.warning(text);
     return antdMessage.error(text);
+  };
+
+  const getGroupAllowed = (items = []) => {
+    if (!items.length) return [];
+    const lists = items.map((r) => getAllowedNextStatuses(r.status));
+    return lists.reduce((acc, list) => acc.filter((s) => list.includes(s)), lists[0] || []);
   };
 
   useEffect(() => { setPage(1); }, [q, statusFilter, limit]);
@@ -194,6 +223,44 @@ export default function Orders() {
     setDraftTrackingNumberById((prev) => ({ ...prev, [orderId]: value }));
   const handleTrackingNoteChange = (orderId, value) =>
     setDraftTrackingNoteById((prev) => ({ ...prev, [orderId]: value }));
+
+  const handleGroupChangeDraft = (groupKey, nextStatus) =>
+    setGroupDraftStatusByKey((prev) => ({ ...prev, [groupKey]: nextStatus }));
+  const handleGroupTrackingNumberChange = (groupKey, value) =>
+    setGroupTrackingNumberByKey((prev) => ({ ...prev, [groupKey]: value }));
+  const handleGroupTrackingNoteChange = (groupKey, value) =>
+    setGroupTrackingNoteByKey((prev) => ({ ...prev, [groupKey]: value }));
+
+  const handleGroupUpdate = async (group) => {
+    const nextStatus = groupDraftStatusByKey[group.key];
+    if (!nextStatus) return showToast("warn", "Please select a status for the group");
+    const allowed = getGroupAllowed(group.items);
+    if (!allowed.includes(nextStatus)) {
+      return showToast("error", `Invalid transition for group. Allowed: ${allowed.map(statusLabel).join(", ") || "None"}`);
+    }
+    const trackingNumber = String(groupTrackingNumberByKey[group.key] || "").trim();
+    const trackingNote = String(groupTrackingNoteByKey[group.key] || "").trim();
+    const payload = { status: nextStatus };
+    if (nextStatus === "processing" || nextStatus === "shipped") {
+      if (trackingNumber) payload.trackingNumber = trackingNumber;
+      if (trackingNote) payload.trackingNote = trackingNote;
+    }
+    setGroupUpdatingKey(group.key);
+    try {
+      for (const row of group.items) {
+        await apiUpdateStatus(row.id, payload, token);
+      }
+      showToast("success", "Group status updated ✅");
+      setGroupDraftStatusByKey((prev) => { const n = { ...prev }; delete n[group.key]; return n; });
+      setGroupTrackingNumberByKey((prev) => { const n = { ...prev }; delete n[group.key]; return n; });
+      setGroupTrackingNoteByKey((prev) => { const n = { ...prev }; delete n[group.key]; return n; });
+      load({ useSignal: false, silent: true });
+    } catch (e) {
+      showToast("error", e.message || "Group update failed");
+    } finally {
+      setGroupUpdatingKey(null);
+    }
+  };
 
   const handleUpdate = async (order) => {
     const orderId = order.id;
@@ -413,75 +480,125 @@ export default function Orders() {
         <div className="grid grid-cols-1 gap-2.5 md:hidden">
           {rows.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-400">No orders found</div>
-          ) : rows.map((row) => {
-            const current = row.status;
-            const allowed = getAllowedNextStatuses(current);
-            const locked = TERMINAL.has(current);
-            const draft = draftStatusById[row.id];
-            const t = getOrderTimeRow(row);
-            return (
-              <div key={row.id} onClick={() => openDetails(row.id)}
-                className="cursor-pointer rounded-xl border border-gray-100 bg-white p-3.5 shadow-sm transition hover:shadow-md active:scale-[0.99]">
-                <div className="flex items-start gap-3">
-                  {row.imageUrl
-                    ? <img src={row.imageUrl} alt={row.name} className="h-11 w-11 shrink-0 rounded-lg border object-cover" />
-                    : <div className="h-11 w-11 shrink-0 rounded-lg border bg-gray-50" />}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="truncate text-sm font-semibold text-gray-900">#{row.id} — {row.name}</span>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium capitalize ${statusPillClasses(current)}`}>
-                        {statusLabel(current)}
-                      </span>
+          ) : grouped.map((g) => (
+            <div
+              key={g.key}
+              className={`space-y-2 ${
+                g.items.length > 1
+                  ? "rounded-2xl border-2 border-indigo-300 bg-indigo-50/70 p-3 shadow-[0_2px_10px_rgba(99,102,241,0.08)] mb-4"
+                  : ""
+              }`}
+            >
+              {g.items.length > 1 ? (
+                <div className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs text-gray-600">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 border border-indigo-200">
+                        Same Cart Group
+                      </span>{" "}
+                      Group: <b title={g.key}>{g.key.slice(0, 8)}</b> · User: <b>{g.items[0]?.userId ?? "-"}</b> · {timeAgo(g.createdAt)}
+                      {" "}· Items: <b>{g.items.length}</b> · Qty: <b>{g.totalQty}</b>
                     </div>
-                    <div className="mt-0.5 text-xs text-gray-400">
-                      UID:{row.userId} · Qty:{row.quantity} · ${row.price} · {timeAgo(t)}
-                      {Number(userOrderCountMap[String(row.userId)] || 0) > 1 && (
-                        <span className="ml-1.5 font-semibold text-blue-600">×{userOrderCountMap[String(row.userId)]}</span>
-                      )}
-                    </div>
-                    {row.trackingNumber ? (
-                      <div className="mt-1 text-[11px] text-indigo-700">
-                        Tracking: <b>{row.trackingNumber}</b>
-                        {row.trackingNote ? <span className="text-gray-600"> ({row.trackingNote})</span> : null}
-                      </div>
-                    ) : null}
-                    <div className="mt-2.5 flex gap-1.5 sm:gap-2">
-                      <select value={draft || ""} onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => handleChangeDraft(row.id, e.target.value)}
-                        disabled={locked || allowed.length === 0}
-                        className="h-8 min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none disabled:opacity-50 md:text-xs">
-                        <option value="">{locked ? "Locked" : "Next status"}</option>
-                        {allowed.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                      </select>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); handleUpdate(row); }}
-                        disabled={locked || !draft || updatingId === row.id}
-                        className="inline-flex h-8 items-center gap-1 rounded-md bg-gray-900 px-2.5 text-[11px] font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition md:gap-1.5 md:px-3 md:text-xs">
-                        {updatingId === row.id ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update"}
-                      </button>
-                    </div>
-                    {draft === "processing" && !row.trackingNumber ? (
-                      <div className="mt-2 grid grid-cols-1 gap-1.5">
-                        <input
-                          value={draftTrackingNumberById[row.id] || ""}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => handleTrackingNumberChange(row.id, e.target.value)}
-                          placeholder="Tracking number (optional)"
-                          className="h-8 rounded-md border border-indigo-200 px-2 text-[11px] outline-none focus:border-indigo-400"
-                        />
-                        <input
-                          value={draftTrackingNoteById[row.id] || ""}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => handleTrackingNoteChange(row.id, e.target.value)}
-                          placeholder="Tracking note (optional)"
-                          className="h-8 rounded-md border border-gray-200 px-2 text-[11px] outline-none focus:border-gray-400"
-                        />
-                      </div>
-                    ) : null}
+                    <div>Total: <b>${Number(g.totalAmount || 0).toFixed(2)}</b></div>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <select
+                      value={groupDraftStatusByKey[g.key] || ""}
+                      onChange={(e) => handleGroupChangeDraft(g.key, e.target.value)}
+                      className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none w-36"
+                    >
+                      <option value="">Set group status</option>
+                      {getGroupAllowed(g.items).map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleGroupUpdate(g)}
+                      disabled={!groupDraftStatusByKey[g.key] || groupUpdatingKey === g.key}
+                      className="inline-flex h-8 items-center gap-1 rounded-md bg-gray-900 px-2.5 text-[11px] font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition"
+                    >
+                      {groupUpdatingKey === g.key ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update All"}
+                    </button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              ) : null}
+              {g.items.map((row) => {
+                const current = row.status;
+                const allowed = getAllowedNextStatuses(current);
+                const locked = TERMINAL.has(current);
+                const draft = draftStatusById[row.id];
+                const t = getOrderTimeRow(row);
+                return (
+                  <div
+                    key={row.id}
+                    onClick={() => openDetails(row.id)}
+                    className={`cursor-pointer rounded-xl border border-gray-100 bg-white p-3.5 shadow-sm transition hover:shadow-md active:scale-[0.99] ${
+                      g.items.length > 1 ? "border-l-4 border-indigo-400" : ""
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {row.imageUrl
+                        ? <img src={row.imageUrl} alt={row.name} className="h-11 w-11 shrink-0 rounded-lg border object-cover" />
+                        : <div className="h-11 w-11 shrink-0 rounded-lg border bg-gray-50" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="line-clamp-2 break-words text-sm font-semibold text-gray-900 max-w-[240px]">
+                            #{row.id} — {row.name}
+                          </span>
+                          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium capitalize ${statusPillClasses(current)}`}>
+                            {statusLabel(current)}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-400">
+                          UID:{row.userId} · Qty:{row.quantity} · ${row.price} · {timeAgo(t)}
+                          {Number(userOrderCountMap[String(row.userId)] || 0) > 1 && (
+                            <span className="ml-1.5 font-semibold text-blue-600">×{userOrderCountMap[String(row.userId)]}</span>
+                          )}
+                        </div>
+                        {row.trackingNumber ? (
+                          <div className="mt-1 text-[11px] text-indigo-700">
+                            Tracking: <b>{row.trackingNumber}</b>
+                            {row.trackingNote ? <span className="text-gray-600"> ({row.trackingNote})</span> : null}
+                          </div>
+                        ) : null}
+                        <div className="mt-2.5 flex gap-1.5 sm:gap-2">
+                          <select value={draft || ""} onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => handleChangeDraft(row.id, e.target.value)}
+                            disabled={locked || allowed.length === 0}
+                            className="h-8 min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none disabled:opacity-50 md:text-xs">
+                            <option value="">{locked ? "Locked" : "Next status"}</option>
+                            {allowed.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                          </select>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); handleUpdate(row); }}
+                            disabled={locked || !draft || updatingId === row.id}
+                            className="inline-flex h-8 items-center gap-1 rounded-md bg-gray-900 px-2.5 text-[11px] font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition md:gap-1.5 md:px-3 md:text-xs">
+                            {updatingId === row.id ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update"}
+                          </button>
+                        </div>
+                        {draft === "processing" && !row.trackingNumber ? (
+                          <div className="mt-2 grid grid-cols-1 gap-1.5">
+                            <input
+                              value={draftTrackingNumberById[row.id] || ""}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => handleTrackingNumberChange(row.id, e.target.value)}
+                              placeholder="Tracking number (optional)"
+                              className="h-8 rounded-md border border-indigo-200 px-2 text-[11px] outline-none focus:border-indigo-400"
+                            />
+                            <input
+                              value={draftTrackingNoteById[row.id] || ""}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => handleTrackingNoteChange(row.id, e.target.value)}
+                              placeholder="Tracking note (optional)"
+                              className="h-8 rounded-md border border-gray-200 px-2 text-[11px] outline-none focus:border-gray-400"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
 
         {/* Desktop Table */}
@@ -492,7 +609,6 @@ export default function Orders() {
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/70 text-xs font-semibold uppercase tracking-wide text-gray-400">
                     <Th>Order</Th>
-                    <Th>Payment</Th>
                     <Th>Status</Th>
                     <Th>Action</Th>
                     <Th>Time</Th>
@@ -500,85 +616,124 @@ export default function Orders() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {rows.length === 0 ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-sm text-gray-400">No orders found</td></tr>
-                  ) : rows.map((row) => {
-                    const current = row.status;
-                    const allowed = getAllowedNextStatuses(current);
-                    const locked = TERMINAL.has(current);
-                    const draft = draftStatusById[row.id];
-                    const t = getOrderTimeRow(row);
-                    return (
-                      <tr key={row.id} onClick={() => openDetails(row.id)}
-                        className="cursor-pointer transition-colors hover:bg-gray-50/60">
-                        <Td>
-                          <div className="flex items-center gap-3">
-                            {row.imageUrl
-                              ? <img src={row.imageUrl} alt={row.name} className="h-9 w-9 shrink-0 rounded-lg border object-cover" />
-                              : <div className="h-9 w-9 shrink-0 rounded-lg border bg-gray-50" />}
-                            <div className="min-w-0">
-                              <div className="truncate font-semibold text-gray-900">#{row.id} — {row.name}</div>
-                              <div className="mt-0.5 text-xs text-gray-400">
-                                UID:{row.userId} · Qty:{row.quantity} · ${row.price}
-                                {Number(userOrderCountMap[String(row.userId)] || 0) > 1 && (
-                                  <span className="ml-1.5 font-semibold text-blue-600">×{userOrderCountMap[String(row.userId)]}</span>
-                                )}
+                      <tr><td colSpan={4} className="p-8 text-center text-sm text-gray-400">No orders found</td></tr>
+                  ) : grouped.flatMap((g) => {
+                    const groupHeader = g.items.length > 1
+                      ? [
+                          <tr key={`g-${g.key}`} className="bg-indigo-50/70">
+                            <td colSpan={4} className="px-4 py-2 text-xs text-gray-600">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 border border-indigo-200">
+                                    Same Cart Group
+                                  </span>{" "}
+                                  Group: <b title={g.key}>{g.key.slice(0, 8)}</b> · User: <b>{g.items[0]?.userId ?? "-"}</b> · {timeAgo(g.createdAt)}
+                                  {" "}· Items: <b>{g.items.length}</b> · Qty: <b>{g.totalQty}</b> · Total: <b>${Number(g.totalAmount || 0).toFixed(2)}</b>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={groupDraftStatusByKey[g.key] || ""}
+                                    onChange={(e) => handleGroupChangeDraft(g.key, e.target.value)}
+                                    className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none w-36"
+                                  >
+                                    <option value="">Set group status</option>
+                                    {getGroupAllowed(g.items).map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleGroupUpdate(g)}
+                                    disabled={!groupDraftStatusByKey[g.key] || groupUpdatingKey === g.key}
+                                    className="inline-flex h-8 items-center gap-1 rounded-md bg-gray-900 px-2.5 text-[11px] font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition"
+                                  >
+                                    {groupUpdatingKey === g.key ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update All"}
+                                  </button>
+                                </div>
                               </div>
-                              {row.trackingNumber ? (
-                                <div className="mt-1 text-[11px] text-indigo-700">
-                                  Tracking: <b>{row.trackingNumber}</b>
-                                  {row.trackingNote ? <span className="text-gray-600"> ({row.trackingNote})</span> : null}
+                            </td>
+                          </tr>,
+                        ]
+                      : [];
+                    return [
+                      ...groupHeader,
+                      ...g.items.map((row) => {
+                        const current = row.status;
+                        const allowed = getAllowedNextStatuses(current);
+                        const locked = TERMINAL.has(current);
+                        const draft = draftStatusById[row.id];
+                        const t = getOrderTimeRow(row);
+                        return (
+                          <tr key={row.id} onClick={() => openDetails(row.id)}
+                            className={`cursor-pointer transition-colors hover:bg-gray-50/60 ${g.items.length > 1 ? "border-l-4 border-indigo-300" : ""}`}>
+                            <Td>
+                              <div className="flex items-center gap-3">
+                                {row.imageUrl
+                                  ? <img src={row.imageUrl} alt={row.name} className="h-9 w-9 shrink-0 rounded-lg border object-cover" />
+                                  : <div className="h-9 w-9 shrink-0 rounded-lg border bg-gray-50" />}
+                                <div className="min-w-0">
+                                  <div className="line-clamp-2 break-words font-semibold text-gray-900 max-w-[360px]">
+                                    #{row.id} — {row.name}
+                                  </div>
+                                  <div className="mt-0.5 text-xs text-gray-400">
+                                    UID:{row.userId} · Qty:{row.quantity} · ${row.price}
+                                    {Number(userOrderCountMap[String(row.userId)] || 0) > 1 && (
+                                      <span className="ml-1.5 font-semibold text-blue-600">×{userOrderCountMap[String(row.userId)]}</span>
+                                    )}
+                                  </div>
+                                  {row.trackingNumber ? (
+                                    <div className="mt-1 text-[11px] text-indigo-700">
+                                      Tracking: <b>{row.trackingNumber}</b>
+                                      {row.trackingNote ? <span className="text-gray-600"> ({row.trackingNote})</span> : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </Td>
+                            <Td>
+                              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${statusPillClasses(current)}`}>
+                                {statusLabel(current)}
+                              </span>
+                            </Td>
+                            <Td onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center gap-2">
+                                <select value={draft || ""} onChange={(e) => handleChangeDraft(row.id, e.target.value)}
+                                  disabled={locked || allowed.length === 0}
+                                  className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none focus:border-gray-400 disabled:opacity-50 w-32 lg:w-40 md:text-xs">
+                                  <option value="">{locked ? "Locked" : "Select next"}</option>
+                                  {allowed.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                                </select>
+                                <button type="button" onClick={() => handleUpdate(row)}
+                                  disabled={locked || !draft || updatingId === row.id}
+                                  className="inline-flex h-8 items-center gap-1 rounded-md bg-gray-900 px-2.5 text-[11px] font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition md:gap-1.5 md:px-3 md:text-xs">
+                                  {updatingId === row.id ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update"}
+                                </button>
+                              </div>
+                              {draft === "processing" && !row.trackingNumber ? (
+                                <div className="mt-1.5 grid grid-cols-1 gap-1.5">
+                                  <input
+                                    value={draftTrackingNumberById[row.id] || ""}
+                                    onChange={(e) => handleTrackingNumberChange(row.id, e.target.value)}
+                                    placeholder="Tracking number (optional)"
+                                    className="h-8 rounded-md border border-indigo-200 px-2 text-[11px] outline-none focus:border-indigo-400"
+                                  />
+                                  <input
+                                    value={draftTrackingNoteById[row.id] || ""}
+                                    onChange={(e) => handleTrackingNoteChange(row.id, e.target.value)}
+                                    placeholder="Tracking note (optional)"
+                                    className="h-8 rounded-md border border-gray-200 px-2 text-[11px] outline-none focus:border-gray-400"
+                                  />
                                 </div>
                               ) : null}
-                            </div>
-                          </div>
-                        </Td>
-                        <Td>
-                          <span className="text-gray-700">{row.paymentMethod || "—"}</span>
-                        </Td>
-                        <Td>
-                          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${statusPillClasses(current)}`}>
-                            {statusLabel(current)}
-                          </span>
-                        </Td>
-                        <Td onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2">
-                            <select value={draft || ""} onChange={(e) => handleChangeDraft(row.id, e.target.value)}
-                              disabled={locked || allowed.length === 0}
-                              className="h-8 rounded-md border border-gray-200 bg-white px-2 text-[11px] outline-none focus:border-gray-400 disabled:opacity-50 w-32 lg:w-40 md:text-xs">
-                              <option value="">{locked ? "Locked" : "Select next"}</option>
-                              {allowed.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                            </select>
-                            <button type="button" onClick={() => handleUpdate(row)}
-                              disabled={locked || !draft || updatingId === row.id}
-                              className="inline-flex h-8 items-center gap-1 rounded-md bg-gray-900 px-2.5 text-[11px] font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition md:gap-1.5 md:px-3 md:text-xs">
-                              {updatingId === row.id ? <><Spinner className="h-3.5 w-3.5 border-gray-500 border-t-white" />…</> : "Update"}
-                            </button>
-                          </div>
-                          {draft === "processing" && !row.trackingNumber ? (
-                            <div className="mt-1.5 grid grid-cols-1 gap-1.5">
-                              <input
-                                value={draftTrackingNumberById[row.id] || ""}
-                                onChange={(e) => handleTrackingNumberChange(row.id, e.target.value)}
-                                placeholder="Tracking number (optional)"
-                                className="h-8 rounded-md border border-indigo-200 px-2 text-[11px] outline-none focus:border-indigo-400"
-                              />
-                              <input
-                                value={draftTrackingNoteById[row.id] || ""}
-                                onChange={(e) => handleTrackingNoteChange(row.id, e.target.value)}
-                                placeholder="Tracking note (optional)"
-                                className="h-8 rounded-md border border-gray-200 px-2 text-[11px] outline-none focus:border-gray-400"
-                              />
-                            </div>
-                          ) : null}
-                        </Td>
-                        <Td>
-                          <div className="text-xs">
-                            <div className="font-medium text-gray-800">{timeAgo(t)}</div>
-                            <div className="text-gray-400">{t ? new Date(t).toLocaleString() : "—"}</div>
-                          </div>
-                        </Td>
-                      </tr>
-                    );
+                            </Td>
+                            <Td>
+                              <div className="text-xs">
+                                <div className="font-medium text-gray-800">{timeAgo(t)}</div>
+                                <div className="text-gray-400">{t ? new Date(t).toLocaleString() : "—"}</div>
+                              </div>
+                            </Td>
+                          </tr>
+                        );
+                      }),
+                    ];
                   })}
                 </tbody>
               </table>

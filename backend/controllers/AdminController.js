@@ -7,6 +7,7 @@ const BalanceTopupRequest = require("../models/BalanceTopupRequest");
 const sequelize = require('../config/db');
 const Notification = require("../models/Notification");
 const { Op, fn, col, where: W, literal } = require("sequelize");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 // const clampInt = (v, d) => {
 //   const n = Number(v);
@@ -114,6 +115,19 @@ exports.approveMerchant = async (req, res) => {
       await user.save({ transaction: t });
     }
 
+    await appendAdminHistory(
+      `Merchant request approved. User #${merchant.userId}, request #${merchant.id}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "merchant_request_approved",
+          userId: merchant.userId,
+          merchantProfileId: merchant.id,
+          status: "approved",
+        },
+      }
+    );
+
       await Notification.create(
         {
           userId: merchant.userId,
@@ -161,6 +175,19 @@ exports.rejectMerchant = async (req, res) => {
         meta: { merchantRequestId: merchant.id, status: "rejected", route: "/merchant" },
       },
       { transaction: t }
+    );
+
+    await appendAdminHistory(
+      `Merchant request rejected. User #${merchant.userId}, request #${merchant.id}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "merchant_request_rejected",
+          userId: merchant.userId,
+          merchantProfileId: merchant.id,
+          status: "rejected",
+        },
+      }
     );
 
     // Safe approach: destroy

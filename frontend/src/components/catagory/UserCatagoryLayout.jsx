@@ -307,6 +307,11 @@ const UserCatagoryLayout = () => {
       message.info("Already added. Please wait a moment.");
       return false;
     }
+    const priceNum = Number(product?.price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      message.error("Invalid product price. Please refresh and try again.");
+      return false;
+    }
     fetch(`http://localhost:3001/api/track/add-to-cart/${product.id}`, {
       method: "POST",
     }).catch(() => {});
@@ -315,7 +320,7 @@ const UserCatagoryLayout = () => {
       addToCart({
         id: product.id,
         name: product.name,
-        price: product.price,
+        price: priceNum,
         merchantId: product.merchantId,
         imageUrl: product.images?.[0] || product.imageUrl?.[0] || product.imageUrl,
         stock: product.stock,

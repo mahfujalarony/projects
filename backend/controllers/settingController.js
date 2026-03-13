@@ -11,6 +11,7 @@ exports.getSettings = async (req, res) => {
     const settings = await AppSetting.findAll();
     const data = {};
     settings.forEach((s) => {
+      if (s.key === "adminHistoryLogs") return;
       try {
         data[s.key] = JSON.parse(s.value);
       } catch (e) {

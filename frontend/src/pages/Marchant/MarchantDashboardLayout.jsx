@@ -390,13 +390,13 @@ const MerchantDashboardLayout = () => {
           boxSizing: "border-box",
           flexShrink: 0,
         }}
-        title={`Balance: USD ${balanceLoading ? "..." : balance}`}
+        title={`Balance: USD ${balanceLoading ? "..." : Number(balance || 0).toFixed(2)}`}
       >
         <Wallet size={screens.sm ? 13 : 11} /> 
         {screens.sm ? (
-          <>USD {balanceLoading ? "..." : balance}</>
+          <>USD {balanceLoading ? "..." : Number(balance || 0).toFixed(2)}</>
         ) : (
-          <>{balanceLoading ? "..." : balance}</>
+          <>{balanceLoading ? "..." : Number(balance || 0).toFixed(2)}</>
         )}
       </div>
           <div style={{ 

@@ -139,11 +139,16 @@ const Saller = () => {
       message.info("Already added. Please wait a moment.");
       return false;
     }
+    const priceNum = Number(product?.price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      message.error("Invalid product price. Please refresh and try again.");
+      return false;
+    }
     dispatch(
       addToCart({
         id: product.id,
         name: product.name,
-        price: parseFloat(product.price),
+        price: priceNum,
         merchantId: product.merchantId,
         imageUrl: product.images?.[0],
         stock: product.stock,

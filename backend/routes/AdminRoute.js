@@ -26,6 +26,7 @@ const {
   getOrphanImages,
   deleteOrphanImages,
 } = require("../controllers/adminMediaCleanupController");
+const { getHistory } = require("../controllers/adminHistoryController");
 
 // admin only
 const adminOnly = (req, res, next) => {
@@ -59,5 +60,6 @@ router.get("/settings", protect, requireAdminOrSubAdminPermission(), getSettings
 router.put("/settings", protect, requireAdminOrSubAdminPermission(), updateSettings);
 router.get("/media/orphans", protect, requireAdminOrSubAdminPermission("manage_media_cleanup"), getOrphanImages);
 router.delete("/media/orphans", protect, requireAdminOrSubAdminPermission("manage_media_cleanup"), deleteOrphanImages);
+router.get("/history", protect, requireAdminOrSubAdminPermission(), getHistory);
 
 module.exports = router;

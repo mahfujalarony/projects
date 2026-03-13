@@ -228,6 +228,11 @@ const Search = () => {
       message.info("Already added. Please wait a moment.");
       return false;
     }
+    const priceNum = Number(product?.price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      message.error("Invalid product price. Please refresh and try again.");
+      return false;
+    }
     const numericQty = Number(qty || 1);
 
     fetch(`${API_BASE}/api/track/add-to-cart/${product.id}`, {
@@ -238,7 +243,7 @@ const Search = () => {
       addToCart({
         id: product.id,
         name: product.name,
-        price: product.price,
+        price: priceNum,
         merchantId: product.merchantId,
         imageUrl: product.images?.[0],
         stock: product.stock,

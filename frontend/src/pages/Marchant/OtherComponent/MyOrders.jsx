@@ -1,9 +1,41 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { Drawer } from "antd";
 import { API_BASE_URL } from "../../../config/env";
 
 const API_URL = `${API_BASE_URL}`;
 const ALL_STATUSES = ["pending", "processing", "shipped", "delivered", "cancelled"];
+const toMoney = (n) => Number(Number(n || 0).toFixed(2));
+
+const getSettlementBreakdown = (order) => {
+  if (!order || order.status !== "delivered") return null;
+  const price = Number(order.price || 0);
+  const qty = Number(order.quantity || 0);
+  const gross = toMoney(price * qty);
+  if (!Number.isFinite(gross) || gross <= 0) return null;
+
+  const baseReturn = toMoney(gross * 0.5);
+  const rate = Number(order.commissionPercent || 0);
+  const fallbackBonus = toMoney((baseReturn * rate) / 100);
+  const rawBonus = Number(order.commissionAmount);
+  const bonus = Number.isFinite(rawBonus) ? toMoney(rawBonus) : fallbackBonus;
+  const merchantCredit = toMoney(baseReturn + bonus);
+  const adminPart = toMoney(Math.max(0, gross - merchantCredit));
+
+  return { gross, baseReturn, rate, bonus, merchantCredit, adminPart };
+};
+
+const renderSettlementNote = (order, compact = false) => {
+  const s = getSettlementBreakdown(order);
+  if (!s) return null;
+
+  return (
+    <div className={`rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 ${compact ? "mt-1.5 px-2 py-1.5 text-[11px]" : "mt-2 px-2.5 py-2 text-xs"}`}>
+      {compact
+        ? `Delivered settlement: Sale $${s.gross.toFixed(2)} -> base $${s.baseReturn.toFixed(2)} + bonus $${s.bonus.toFixed(2)} (${s.rate.toFixed(2)}%) = credit $${s.merchantCredit.toFixed(2)}.`
+        : `Delivered: Total sale $${s.gross.toFixed(2)}. Base return $${s.baseReturn.toFixed(2)} (50%) + bonus $${s.bonus.toFixed(2)} (${s.rate.toFixed(2)}%) = $${s.merchantCredit.toFixed(2)} added to your balance. Admin part: $${s.adminPart.toFixed(2)}.`}
+    </div>
+  );
+};
 
 function timeAgo(input) {
   if (!input) return "-";
@@ -141,7 +173,7 @@ export default function MerchantOrders() {
         </div>
       )}
 
-      {/* ── Compact Header ── */}
+      {/* â”€â”€ Compact Header â”€â”€ */}
       <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-900 text-white">
@@ -151,7 +183,7 @@ export default function MerchantOrders() {
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-gray-900 leading-none">Merchant Orders</h2>
-            <p className="mt-0.5 text-[11px] text-gray-400 leading-none">Read-only · Admin controls status</p>
+            <p className="mt-0.5 text-[11px] text-gray-400 leading-none">Read-only Â· Admin controls status</p>
           </div>
           {meta.total > 0 && (
             <span className="hidden sm:inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
@@ -187,7 +219,7 @@ export default function MerchantOrders() {
         </div>
       </div>
 
-      {/* ── Filters Bar ── */}
+      {/* â”€â”€ Filters Bar â”€â”€ */}
       <div className={`rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm ${showFilters ? "block" : "hidden"} md:block`}>
         <div className="flex flex-wrap items-end gap-2.5">
           {/* Status */}
@@ -245,18 +277,18 @@ export default function MerchantOrders() {
 
           {meta.total > 0 && (
             <div className="ml-auto text-xs text-gray-500 whitespace-nowrap">
-              <b className="text-gray-700">{from}</b>–<b className="text-gray-700">{to}</b> of <b className="text-gray-700">{meta.total}</b>
+              <b className="text-gray-700">{from}</b>â€“<b className="text-gray-700">{to}</b> of <b className="text-gray-700">{meta.total}</b>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Table / Cards ── */}
+      {/* â”€â”€ Table / Cards â”€â”€ */}
       <div className="relative">
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-[2px]">
             <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium shadow-md">
-              <Spinner className="h-4 w-4" /> Loading orders…
+              <Spinner className="h-4 w-4" /> Loading ordersâ€¦
             </div>
           </div>
         )}
@@ -277,15 +309,17 @@ export default function MerchantOrders() {
                   : <div className="h-11 w-11 shrink-0 rounded-lg border bg-gray-100" />}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="text-sm font-semibold text-gray-900 truncate">#{r.id} · {r.name}</div>
+                    <div className="text-sm font-semibold text-gray-900 line-clamp-2 break-words max-w-[220px]">
+                      #{r.id} Â· {r.name}
+                    </div>
                     <StatusBadge status={r.status} />
                   </div>
                   <div className="mt-1 text-[11px] text-gray-400">
-                    P:{r.productId} · U:{r.userId} · {timeAgo(r.createdAt)}
+                    P:{r.productId} Â· U:{r.userId} Â· {timeAgo(r.createdAt)}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <div className="flex gap-1.5 text-[11px]">
-                      <span className="rounded-full border bg-gray-50 px-2 py-0.5 font-medium text-gray-600">×{r.quantity}</span>
+                      <span className="rounded-full border bg-gray-50 px-2 py-0.5 font-medium text-gray-600">Ã—{r.quantity}</span>
                       <span className="rounded-full border bg-gray-50 px-2 py-0.5 font-medium text-gray-600">${Number(r.price || 0).toFixed(2)}</span>
                     </div>
                     <button
@@ -295,6 +329,7 @@ export default function MerchantOrders() {
                       Details
                     </button>
                   </div>
+                  {renderSettlementNote(r)}
                 </div>
               </div>
             </div>
@@ -341,13 +376,16 @@ export default function MerchantOrders() {
                             ? <img src={r.imageUrl} alt={r.name} className="h-9 w-9 shrink-0 rounded-lg border object-cover" />
                             : <div className="h-9 w-9 shrink-0 rounded-lg border bg-gray-100" />}
                           <div className="min-w-0">
-                            <div className="truncate font-medium text-gray-900 text-sm">{r.name}</div>
-                            <div className="text-[11px] text-gray-400">P:{r.productId} · U:{r.userId}</div>
+                          <div className="line-clamp-2 break-words max-w-[320px] font-medium text-gray-900 text-sm">
+                            {r.name}
+                          </div>
+                            <div className="text-[11px] text-gray-400">P:{r.productId} Â· U:{r.userId}</div>
                             {r.productMeta && (
                               <div className="text-[11px] text-gray-400">
-                                {r.productMeta.category || "-"} · stock:{r.productMeta.stock} · sold:{r.productMeta.soldCount}
+                                {r.productMeta.category || "-"} Â· stock:{r.productMeta.stock} Â· sold:{r.productMeta.soldCount}
                               </div>
                             )}
+                            {renderSettlementNote(r, true)}
                           </div>
                         </div>
                       </td>
@@ -372,11 +410,11 @@ export default function MerchantOrders() {
         </div>
       </div>
 
-      {/* ── Pagination ── */}
+      {/* â”€â”€ Pagination â”€â”€ */}
       <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
         {[
-          { label: "«", action: () => changePage(1),        disabled: page <= 1 },
-          { label: "‹", action: () => changePage(page - 1), disabled: page <= 1 },
+          { label: "Â«", action: () => changePage(1),        disabled: page <= 1 },
+          { label: "â€¹", action: () => changePage(page - 1), disabled: page <= 1 },
         ].map(({ label, action, disabled }) => (
           <button key={label} onClick={action} disabled={disabled || loading}
             className="h-8 w-8 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors">
@@ -389,8 +427,8 @@ export default function MerchantOrders() {
         </div>
 
         {[
-          { label: "›", action: () => changePage(page + 1), disabled: page >= pages },
-          { label: "»", action: () => changePage(pages),    disabled: page >= pages },
+          { label: "â€º", action: () => changePage(page + 1), disabled: page >= pages },
+          { label: "Â»", action: () => changePage(pages),    disabled: page >= pages },
         ].map(({ label, action, disabled }) => (
           <button key={label} onClick={action} disabled={disabled || loading}
             className="h-8 w-8 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors">
@@ -400,12 +438,12 @@ export default function MerchantOrders() {
 
         {meta.total > 0 && (
           <span className="ml-auto text-xs text-gray-400">
-            {from}–{to} of {meta.total}
+            {from}â€“{to} of {meta.total}
           </span>
         )}
       </div>
 
-      {/* ── Drawer ── */}
+      {/* â”€â”€ Drawer â”€â”€ */}
       <Drawer
         title={
           <div className="flex items-center gap-2">
@@ -446,13 +484,14 @@ export default function MerchantOrders() {
                 </div>
               ))}
             </div>
+            {renderSettlementNote(selectedOrder)}
 
             {selectedOrder.productMeta && (
               <div className="rounded-lg border border-gray-100 bg-gray-50 p-2.5">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1">Product Meta</div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
-                  <span>Category: <b className="text-gray-800">{selectedOrder.productMeta.category || "—"}</b></span>
-                  <span>Sub: <b className="text-gray-800">{selectedOrder.productMeta.subCategory || "—"}</b></span>
+                  <span>Category: <b className="text-gray-800">{selectedOrder.productMeta.category || "â€”"}</b></span>
+                  <span>Sub: <b className="text-gray-800">{selectedOrder.productMeta.subCategory || "â€”"}</b></span>
                   <span>Stock: <b className="text-gray-800">{selectedOrder.productMeta.stock}</b></span>
                   <span>Sold: <b className="text-gray-800">{selectedOrder.productMeta.soldCount}</b></span>
                 </div>

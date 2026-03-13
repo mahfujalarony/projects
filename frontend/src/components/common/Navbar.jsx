@@ -71,21 +71,26 @@ const Navbar = ({ collapsed, setCollapsed, openDrawer, isMobile, categories = []
       return `${UPLOAD_BASE_URL}/${raw.replace(/^\/+/, "")}`;
     };
 
+    const applySettings = (settings = {}) => {
+      if (ignore) return;
+      setLogoSrc(toLogoSrc(settings?.siteLogoUrl));
+      setSiteName(clampSiteName(settings?.siteName, ""));
+      const rawSuggestions = settings?.searchSuggestions;
+      const parsedSuggestions = Array.isArray(rawSuggestions)
+        ? rawSuggestions
+        : String(rawSuggestions || "")
+            .split(/\r?\n|,/)
+            .map((x) => String(x || "").trim())
+            .filter(Boolean);
+      setSearchSuggestions([...new Set(parsedSuggestions)].slice(0, 20));
+    };
+
     (async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/settings`);
+        const res = await fetch(`${API_BASE_URL}/api/settings`, { cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json?.success || ignore) return;
-        setLogoSrc(toLogoSrc(json?.data?.siteLogoUrl));
-        setSiteName(clampSiteName(json?.data?.siteName, ""));
-        const rawSuggestions = json?.data?.searchSuggestions;
-        const parsedSuggestions = Array.isArray(rawSuggestions)
-          ? rawSuggestions
-          : String(rawSuggestions || "")
-              .split(/\r?\n|,/)
-              .map((x) => String(x || "").trim())
-              .filter(Boolean);
-        setSearchSuggestions([...new Set(parsedSuggestions)].slice(0, 20));
+        applySettings(json?.data || {});
       } catch {
         // keep empty; no default logo/name
       } finally {
@@ -93,8 +98,12 @@ const Navbar = ({ collapsed, setCollapsed, openDrawer, isMobile, categories = []
       }
     })();
 
+    const handleSettingsUpdate = (event) => applySettings(event?.detail || {});
+    window.addEventListener("app-settings-updated", handleSettingsUpdate);
+
     return () => {
       ignore = true;
+      window.removeEventListener("app-settings-updated", handleSettingsUpdate);
     };
   }, []);
 

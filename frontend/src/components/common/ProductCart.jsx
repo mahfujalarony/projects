@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { animateAddToCart, bumpCartBadge } from "../../utils/cartAnimation";
 
-const ProductCard = ({ product, onAddToCart, onProductClick }) => {
+const ProductCard = ({ product, onAddToCart, onProductClick, imageClassName = "h-28 md:h-32" }) => {
   const [qty, setQty] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
   const [cooldown, setCooldown] = useState(false);
@@ -20,10 +20,12 @@ const ProductCard = ({ product, onAddToCart, onProductClick }) => {
   return (
     <div className="bg-white rounded-lg shadow-sm hover:shadow-md transition-all duration-300 flex flex-col border border-gray-100 overflow-hidden group">
       <Link to={`/products/${product.id}`} className="block" onClick={handleOpenProduct}>
-        <div className="h-28 md:h-32 w-full bg-gray-50 relative overflow-hidden">
+        <div className={`${imageClassName} w-full bg-gray-50 relative overflow-hidden`}>
           <img
             src={product.images?.[0] || "https://via.placeholder.com/150"}
             alt={product.name}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
         </div>

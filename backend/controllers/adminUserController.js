@@ -3,6 +3,7 @@ const { Op } = require("sequelize");
 const User = require("../models/Authentication"); // তোমার User model
 const SubAdminPermission = require("../models/SubAdminPermission");
 const bcrypt = require("bcryptjs");
+const { toMoney2 } = require("../utils/money");
 
 const ALLOWED_SUBADMIN_PERMISSIONS = new Set([
   "edit_products",
@@ -151,7 +152,11 @@ exports.adminUpdateUser = async (req, res) => {
       if (!Number.isFinite(b) || b < 0) {
         return res.status(400).json({ success: false, message: "Balance must be a non-negative number" });
       }
-      user.balance = b;
+      const rounded = toMoney2(b);
+      if (!rounded) {
+        return res.status(400).json({ success: false, message: "Invalid balance" });
+      }
+      user.balance = rounded;
     }
 
     await user.save();

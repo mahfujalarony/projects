@@ -69,6 +69,7 @@ const Settings = () => {
     setSaving(true);
     try {
       const payload = { ...values };
+      payload.siteLogoUrl = String(form.getFieldValue("siteLogoUrl") || "").trim();
       payload.searchSuggestions = String(values.searchSuggestions || "")
         .split(/\r?\n|,/)
         .map((x) => String(x || "").trim())
@@ -81,6 +82,14 @@ const Settings = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       message.success("Settings updated");
+      window.dispatchEvent(
+        new CustomEvent("app-settings-updated", {
+          detail: {
+            siteName: String(payload.siteName || "").trim(),
+            siteLogoUrl: payload.siteLogoUrl,
+          },
+        })
+      );
     } catch (error) {
 
       message.error("Failed to update settings");
@@ -157,7 +166,7 @@ const Settings = () => {
           <Row gutter={[12, 2]}>
             <Col xs={24} md={12}>
               <Form.Item
-                label="Delivery Charge (BDT)"
+                label="Delivery Charge (USD)"
                 name="deliveryCharge"
                 rules={[{ required: true, message: "Please enter the delivery charge." }]}
                 style={{ marginBottom: 12 }}
@@ -188,7 +197,7 @@ const Settings = () => {
           <Row gutter={[12, 2]}>
             <Col xs={24} md={12}>
               <Form.Item
-                label="Story Post Fee (BDT)"
+                label="Story Post Fee (USD)"
                 name="storyPostFee"
                 rules={[{ required: true, message: "Please enter the story post fee." }]}
                 help="This amount is deducted from the merchant balance when publishing a story."
@@ -307,6 +316,9 @@ const Settings = () => {
             help="Upload a logo image. Manual URL input is disabled."
             style={{ marginBottom: 14 }}
           >
+            <Form.Item name="siteLogoUrl" hidden>
+              <Input />
+            </Form.Item>
             <Upload accept="image/*" showUploadList={false} customRequest={uploadLogo} maxCount={1}>
               <Button
                 icon={<UploadOutlined />}

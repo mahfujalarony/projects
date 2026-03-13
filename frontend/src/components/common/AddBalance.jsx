@@ -64,6 +64,7 @@ export default function AddBalance() {
   const [sendingSupport, setSendingSupport] = useState(false);
 
   const [form] = Form.useForm();
+  const watchAmount = Form.useWatch("amount", form);
 
   const token = useMemo(() => {
     if (reduxToken) return reduxToken;
@@ -81,6 +82,21 @@ export default function AddBalance() {
   const selectedProvider = useMemo(() => {
     return providers.find((p) => String(p.id) === String(providerId)) || null;
   }, [providers, providerId]);
+
+  const providerRate = useMemo(() => {
+    const n = Number(selectedProvider?.dollarRate);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [selectedProvider]);
+
+  const usdPreview = useMemo(() => {
+    const amt = Number(watchAmount);
+    if (!providerRate || !Number.isFinite(amt) || amt <= 0) return null;
+    return (amt / providerRate).toFixed(2);
+  }, [providerRate, watchAmount]);
+
+  const minLocalAmount = useMemo(() => {
+    return providerRate || 1;
+  }, [providerRate]);
 
   const selectedNumbers = useMemo(() => {
     if (!selectedWallet) return [];
@@ -159,6 +175,10 @@ export default function AddBalance() {
       setPendingLoading(false);
     }
   };
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -364,10 +384,6 @@ export default function AddBalance() {
           </Button>
         </div>
 
-        <Text type="secondary">
-          Payment Submission Guide: 1) Select your Mobile Banking provider. 2) Select the appropriate Wallet. 3) Choose the receiving wallet number to which you sent the payment. 4) Enter your sender number (the number used to send the payment). 5) Enter the exact amount sent. 6) Enter the transaction ID received after payment. Please provide accurate information only; incorrect or misleading details may result in rejection of your request.
-        </Text>
-
         {/* ✅ Pending Banner */}
         <div style={{ marginTop: 14 }}>
           {blockedActive ? (
@@ -397,12 +413,12 @@ export default function AddBalance() {
               description={
                 <div style={{ marginTop: 6 }}>
                   <div>
-                    Total pending amount: <b>{Number(pendingInfo.totalAmount || 0).toFixed(2)}</b>
+                    Total pending amount: <b>{Number(pendingInfo.totalAmount || 0).toFixed(2)} USD</b>
                   </div>
                   {pendingInfo.latest ? (
                     <div style={{ marginTop: 6, opacity: 0.9 }}>
                       Latest TX: <b>{pendingInfo.latest.transactionId}</b>, Amount:{" "}
-                      <b>{Number(pendingInfo.latest.amount || 0).toFixed(2)}</b>
+                      <b>{Number(pendingInfo.latest.amount || 0).toFixed(2)} USD</b>
                     </div>
                   ) : null}
                 </div>
@@ -425,7 +441,7 @@ export default function AddBalance() {
                 <div>
                   <div>
                     TX: <b>{pendingInfo.latestRejected.transactionId}</b>, Amount:{" "}
-                    <b>{Number(pendingInfo.latestRejected.amount || 0).toFixed(2)}</b>
+                    <b>{Number(pendingInfo.latestRejected.amount || 0).toFixed(2)} USD</b>
                   </div>
                   <div style={{ marginTop: 4 }}>
                     Reason: <b>{pendingInfo.latestRejected.adminNote}</b>
@@ -489,6 +505,11 @@ export default function AddBalance() {
                 <div>
                   <div style={{ fontWeight: 800 }}>{selectedProvider.name}</div>
                   <div style={{ opacity: 0.7 }}>Provider</div>
+                  {providerRate ? (
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+                      Rate: 1 USD = {providerRate.toFixed(4)}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </Card>
@@ -584,9 +605,36 @@ export default function AddBalance() {
               <Input placeholder="01XXXXXXXXX" />
             </Form.Item>
 
-            <Form.Item label="Amount" name="amount" rules={[{ required: true, message: "Amount required" }]}>
-              <InputNumber style={{ width: "100%" }} min={1} />
+            <Form.Item
+              label="Amount (Local Currency)"
+              name="amount"
+              rules={[
+                { required: true, message: "Amount required" },
+                {
+                  validator: (_, value) => {
+                    if (value === undefined || value === null || value === "") return Promise.resolve();
+                    const n = Number(value);
+                    if (!Number.isFinite(n) || n <= 0) {
+                      return Promise.reject(new Error("Amount must be > 0"));
+                    }
+                    if (providerRate && n < providerRate) {
+                      return Promise.reject(new Error(`Minimum amount is ${providerRate} (to credit at least 1 USD)`));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
+            >
+              <InputNumber style={{ width: "100%" }} min={minLocalAmount} />
             </Form.Item>
+            {providerRate ? (
+              <div style={{ marginTop: -8, marginBottom: 12 }}>
+                <Text type="secondary">
+                  Minimum: {providerRate.toFixed(4)} local = 1 USD. Rate: 1 USD = {providerRate.toFixed(4)}.{" "}
+                  {usdPreview ? `USD credit: ${usdPreview}` : "Enter an amount to preview USD."}
+                </Text>
+              </div>
+            ) : null}
 
             <Form.Item
               label="Transaction ID"
@@ -636,6 +684,12 @@ export default function AddBalance() {
               </div>
             ) : null}
           </Form>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <Text type="secondary">
+            Payment Submission Guide: 1) Select your Mobile Banking provider. 2) Select the appropriate Wallet. 3) Choose the receiving wallet number to which you sent the payment. 4) Enter your sender number (the number used to send the payment). 5) Enter the exact amount sent in local currency. 6) Enter the transaction ID received after payment. Your wallet balance is credited in USD using the provider’s configured rate. Please provide accurate information only; incorrect or misleading details may result in rejection of your request.
+          </Text>
         </div>
 
         <div style={{ marginTop: 18 }}>

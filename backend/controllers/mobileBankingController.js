@@ -2,16 +2,25 @@
 const MobileBanking = require("../models/MobileBanking");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
+const asPositiveNumber = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
 exports.createMobileBanking = async (req, res) => {
   try {
-    const { name, imgUrl, isActive } = req.body || {};
+    const { name, imgUrl, isActive, dollarRate } = req.body || {};
 
     if (!isNonEmpty(name)) {
       return res.status(400).json({ success: false, message: "name is required" });
     }
     if (!isNonEmpty(imgUrl)) {
       return res.status(400).json({ success: false, message: "imgUrl is required" });
+    }
+
+    const rate = asPositiveNumber(dollarRate);
+    if (!rate) {
+      return res.status(400).json({ success: false, message: "dollarRate must be > 0" });
     }
 
     // unique name check (case-insensitive safe)
@@ -25,6 +34,7 @@ exports.createMobileBanking = async (req, res) => {
     const row = await MobileBanking.create({
       name: name.trim(),
       imgUrl: imgUrl.trim(),
+      dollarRate: rate,
       isActive: typeof isActive === "boolean" ? isActive : true,
     });
 
@@ -61,7 +71,7 @@ exports.getOneMobileBanking = async (req, res) => {
 exports.updateMobileBanking = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, imgUrl, isActive } = req.body || {};
+    const { name, imgUrl, isActive, dollarRate } = req.body || {};
 
     const row = await MobileBanking.findByPk(id);
     if (!row) return res.status(404).json({ success: false, message: "Not found" });
@@ -87,6 +97,14 @@ exports.updateMobileBanking = async (req, res) => {
         return res.status(400).json({ success: false, message: "imgUrl cannot be empty" });
       }
       row.imgUrl = imgUrl.trim();
+    }
+
+    if (dollarRate !== undefined) {
+      const rate = asPositiveNumber(dollarRate);
+      if (!rate) {
+        return res.status(400).json({ success: false, message: "dollarRate must be > 0" });
+      }
+      row.dollarRate = rate;
     }
 
     if (typeof isActive === "boolean") row.isActive = isActive;

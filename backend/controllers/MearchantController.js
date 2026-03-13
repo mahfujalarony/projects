@@ -6,6 +6,8 @@ const MerchentStore = require("../models/MerchentStore");
 const Authentication = require("../models/Authentication");
 const OrderItem = require("../models/Order");
 const Review = require("../models/Review");
+const { subMoney2 } = require("../utils/money");
+const { appendAdminHistory } = require("../utils/adminHistory");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -148,6 +150,18 @@ exports.merchantRegister = async (req, res) => {
       socialLinks: socialLinksJson,
       phoneNumber: isNonEmpty(phoneNumber) ? String(phoneNumber).trim() : null,
     });
+
+    await appendAdminHistory(
+      `Merchant join request submitted by user #${userId}. Request status: pending.`,
+      {
+        meta: {
+          type: "merchant_join_request",
+          userId,
+          merchantProfileId: merchant.id,
+          status: merchant.status,
+        },
+      }
+    );
 
     return res.status(201).json({
       message: "Merchant registration submitted. Waiting for approval.",
@@ -411,7 +425,8 @@ exports.pickFromAdminToMerchantStore = async (req, res) => {
     }
 
     const unitPrice = Number(product.price || 0);
-    const totalCost = unitPrice * q;
+    const fullCost = unitPrice * q;
+    const totalCost = Number((fullCost * 0.5).toFixed(2));
     const currentBalance = Number(merchant.balance || 0);
 
     if (currentBalance < totalCost) {
@@ -420,7 +435,12 @@ exports.pickFromAdminToMerchantStore = async (req, res) => {
     }
 
     // 1) deduct balance
-    merchant.balance = currentBalance - totalCost;
+    const nextMerchantBalance = subMoney2(currentBalance, totalCost);
+    if (!nextMerchantBalance) {
+      await t.rollback();
+      return res.status(400).json({ message: "Invalid balance calculation" });
+    }
+    merchant.balance = nextMerchantBalance;
     await merchant.save({ transaction: t });
 
     // 2) decrease admin stock + update soldCount/soldBy
@@ -469,6 +489,23 @@ exports.pickFromAdminToMerchantStore = async (req, res) => {
         { transaction: t }
       );
     }
+
+    await appendAdminHistory(
+      `Merchant #${merchantId} picked ${q} item(s) of "${product.name}" (product #${pid}). Full price ${fullCost.toFixed(
+        2
+      )}, charged 50% = ${totalCost.toFixed(2)}.`,
+      {
+        transaction: t,
+        meta: {
+          type: "merchant_pick",
+          merchantId,
+          productId: pid,
+          qty: q,
+          fullCost: Number(fullCost.toFixed(2)),
+          chargedAmount: totalCost,
+        },
+      }
+    );
 
     await t.commit();
 
@@ -641,6 +678,9 @@ exports.getMerchantOrders = async (req, res) => {
         quantity: r.quantity,
         imageUrl: r.imageUrl,
         status: r.status,
+        deliveryCharge: r.deliveryCharge,
+        commissionPercent: r.commissionPercent,
+        commissionAmount: r.commissionAmount,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
         productMeta: p
@@ -905,6 +945,18 @@ exports.applyForMerchant = async (req, res) => {
       socialLinks: socialLinks || null,
       phoneNumber: phoneNumber || null,
     });
+
+    await appendAdminHistory(
+      `Merchant join request submitted by user #${userId}. Request status: pending.`,
+      {
+        meta: {
+          type: "merchant_join_request",
+          userId,
+          merchantProfileId: merchant.id,
+          status: merchant.status,
+        },
+      }
+    );
 
     return res.status(201).json({ message: "Merchant request submitted successfully", merchant });
   } catch (err) {
