@@ -270,10 +270,22 @@ const MerchantPickProducts = () => {
 
   const canStock = (product, qty) => Number(product?.stock || 0) >= qty;
 
+  const clampQtyByStock = (value, stock) => {
+    const maxStock = Math.max(0, Number(stock || 0));
+    if (maxStock <= 0) return 0;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 1;
+    return Math.min(maxStock, Math.max(1, Math.floor(numeric)));
+  };
+
   const handlePick = async (product) => {
     const pid = product.id;
-    const qty = Number(qtyMap[pid] || 1);
-    const fullCost = Number(product.price || 0) * qty;
+    const qty = clampQtyByStock(qtyMap[pid] || 1, product?.stock);
+    if (qtyMap[pid] !== qty) {
+      setQtyMap((m) => ({ ...m, [pid]: qty }));
+    }
+    const unitPrice = Number(product.price || 0);
+    const fullCost = unitPrice * qty;
     const charge = getPickCharge(product, qty);
     const remaining = balance - charge;
 
@@ -287,7 +299,15 @@ const MerchantPickProducts = () => {
           <p>Are you sure you want to add this to your store?</p>
           <div style={{ marginTop: 10 }}>
             <div>Current Balance: <b>${Number(balance || 0).toFixed(2)}</b></div>
-            <div>Product Total: <b>${Number(fullCost || 0).toFixed(2)}</b></div>
+            <div>
+              Quantity: <b>{qty}</b>
+            </div>
+            <div>
+              Unit Price: <b>${Number(unitPrice || 0).toFixed(2)}</b>
+            </div>
+            <div>
+              Product Total: <b>{qty} x ${Number(unitPrice || 0).toFixed(2)} = ${Number(fullCost || 0).toFixed(2)}</b>
+            </div>
             <div>Charge (50%): <b style={{ color: "red" }}>${Number(charge || 0).toFixed(2)}</b></div>
             <div style={{ borderTop: "1px solid #eee", marginTop: 5, paddingTop: 5 }}>
               Remaining Balance: <b style={{ color: "green" }}>${Number(remaining || 0).toFixed(2)}</b>
@@ -563,11 +583,15 @@ const MerchantPickProducts = () => {
                   <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
                     <InputNumber
                       size="small"
-                      min={1}
+                      min={p.stock > 0 ? 1 : 0}
                       max={p.stock}
                       value={selectedQty}
+                      disabled={Number(p?.stock || 0) <= 0}
                       style={{ width: 88 }}
-                      onChange={(v) => setQtyMap((m) => ({ ...m, [pid]: Number(v) }))}
+                      onChange={(v) => {
+                        const clamped = clampQtyByStock(v, p?.stock);
+                        setQtyMap((m) => ({ ...m, [pid]: clamped }));
+                      }}
                     />
                     <Button
                       size="small"

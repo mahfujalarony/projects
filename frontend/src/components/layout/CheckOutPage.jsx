@@ -22,6 +22,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { updateQty, removeFromCart, clearCart } from "./../../redux/cartSlice";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -432,7 +433,7 @@ const CheckoutPage = () => {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <img
-                        src={item.imageUrl}
+                        src={normalizeImageUrl(item.imageUrl)}
                         alt={item.name}
                         style={{
                           width: isMobile ? 72 : 64,

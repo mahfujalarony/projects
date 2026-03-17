@@ -7,20 +7,13 @@ import { useInView } from "react-intersection-observer";
 import ProductCard from "./ProductCart";
 import { useDispatch } from "react-redux";
 import { addToCart } from "../../redux/cartSlice";
-import { API_BASE_URL } from "../../config/env";
 import { canAddToCart } from "../../utils/cartAddGuard";
+import { normalizeImageUrl } from "../../utils/imageUrl";
+import { API_BASE_URL } from "../../config/env";
 
 const { Title, Text, Paragraph } = Typography;
-const API_BASE = API_BASE_URL;
 const PAGE_SIZE = 24;
-
-const getFullImageUrl = (imgPath) => {
-  if (!imgPath) return null;
-  const str = String(imgPath);
-  if (str.startsWith("http")) return str;
-  const cleanPath = str.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  return `${API_BASE}/${cleanPath}`;
-};
+const API_BASE = API_BASE_URL;
 
 const Saller = () => {
   const { merchantId } = useParams();
@@ -195,7 +188,7 @@ const Saller = () => {
     const imgArray = Array.isArray(imgs) ? imgs : [];
     return {
       ...p,
-      images: imgArray.map(getFullImageUrl),
+      images: imgArray.map((img) => normalizeImageUrl(img)),
     };
   };
 
@@ -258,7 +251,7 @@ const Saller = () => {
                 <div className="h-32 w-32 md:h-40 md:w-40 rounded-full p-1 bg-white shadow-md">
                   <Avatar
                     size={{ xs: 118, sm: 118, md: 150, lg: 150, xl: 150, xxl: 150 }}
-                    src={getFullImageUrl(merchant.imageUrl)}
+                    src={normalizeImageUrl(merchant.imageUrl)}
                     icon={<UserOutlined />}
                     className="w-full h-full object-cover rounded-full border border-slate-100 bg-slate-50"
                   />

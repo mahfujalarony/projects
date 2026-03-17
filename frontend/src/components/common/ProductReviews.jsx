@@ -19,6 +19,7 @@ import {
   Image,
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
+import { User } from "lucide-react";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { normalizeImageUrl } from "../../utils/imageUrl";
@@ -29,7 +30,7 @@ const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const API_BASE = API_BASE_URL;
-const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`; 
+const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image?scope=reviews`; 
 
 const cleanImage = (url) => normalizeImageUrl(url);
 
@@ -199,7 +200,7 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
 
     if (!files.length) return [];
 
-    // ✅ your example logic: one by one upload, each returns {urls:[...]}
+    // Upload each file and keep relative /public paths
     const uploadPromises = files.map((file) => {
       const fd = new FormData();
       fd.append("file", file);
@@ -215,8 +216,8 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
       })
     );
 
-    const urls = uploadJson.flatMap((u) => u.urls || []);
-    return urls;
+    const paths = uploadJson.flatMap((u) => u.paths || []);
+    return paths;
   };
 
   const submitReview = async () => {
@@ -430,7 +431,12 @@ export default function ProductReviews({ productId, product, onStatsUpdate }) {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0, flex: "1 1 320px" }}>
-                  <Avatar src={cleanImage(r.user?.imageUrl)} size={44} style={{ flex: "0 0 auto" }} />
+                  <Avatar
+                    src={cleanImage(r.user?.imageUrl)}
+                    icon={<User size={18} />}
+                    size={44}
+                    style={{ flex: "0 0 auto" }}
+                  />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <Space size="small" wrap>
                       <Text strong>{r.user?.name || "User"}</Text>

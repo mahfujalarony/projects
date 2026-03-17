@@ -4,6 +4,7 @@ const Wallet = require("../models/Wallet");
 const WalletNumber = require("../models/WalletNumber");
 const MobileBanking = require("../models/MobileBanking");
 const { appendAdminHistory } = require("../utils/adminHistory");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -236,9 +237,11 @@ exports.deleteWallet = async (req, res) => {
       name: row.name,
       visibility: row.visibility,
       ownerUserId: row.ownerUserId || null,
+      imgUrl: row.imgUrl || null,
     };
 
     await row.destroy();
+    await deleteUploadFileIfSafe(snapshot.imgUrl);
     await appendAdminHistory(
       `Wallet deleted. Wallet #${snapshot.walletId} (${snapshot.name}) by admin #${actorId || "unknown"}.`,
       {

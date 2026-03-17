@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Table, Tag, Button, Space, Select, Modal, Descriptions, message, Input, Grid, Card, Pagination, Image, Tabs } from "antd";
 import { FilterOutlined, UpOutlined, DownOutlined } from "@ant-design/icons";
 import { API_BASE_PATH } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const API = API_BASE_PATH;
 const { useBreakpoint } = Grid;
@@ -443,7 +444,7 @@ export default function AdminMerchantRequests() {
             <Descriptions.Item label="ID Front">
               {active.idFrontImage ? (
                 <Image
-                  src={active.idFrontImage}
+                  src={normalizeImageUrl(active.idFrontImage)}
                   alt="ID Front"
                   width={140}
                   style={{ borderRadius: 8, objectFit: "cover" }}
@@ -454,7 +455,7 @@ export default function AdminMerchantRequests() {
             <Descriptions.Item label="ID Back">
               {active.idBackImage ? (
                 <Image
-                  src={active.idBackImage}
+                  src={normalizeImageUrl(active.idBackImage)}
                   alt="ID Back"
                   width={140}
                   style={{ borderRadius: 8, objectFit: "cover" }}

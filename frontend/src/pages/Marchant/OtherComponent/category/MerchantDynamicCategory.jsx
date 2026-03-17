@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { API_BASE_URL } from "../../../../config/env";
+import { normalizeImageUrl } from "../../../../utils/imageUrl";
 
 const API = `${API_BASE_URL}`;
 
@@ -156,7 +157,7 @@ export default function MerchantPickProducts({ mainCategory }) {
               >
                 <div style={{ height: 110, background: "#f2f2f2" }}>
                   {img ? (
-                    <img src={img} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <img src={normalizeImageUrl(img)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : null}
                 </div>
 

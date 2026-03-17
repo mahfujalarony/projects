@@ -40,14 +40,42 @@ const API_CATEGORIES = `${API_BASE_URL}/api/categories`;
 const API_ADMIN_PRODUCTS = `${API_BASE_URL}/api/admin/products`;
 const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
 
+const buildProductUploadUrl = ({ subCategory, productId, startCount }) => {
+  const params = new URLSearchParams();
+  params.set("scope", "product");
+  params.set("subcategory", String(subCategory || "uncategorized"));
+  params.set("productId", String(productId));
+  params.set("startCount", String(startCount));
+  return `${UPLOAD_URL}?${params.toString()}`;
+};
+
 const { useBreakpoint } = Grid;
 
 const clamp = (n, a, b) => Math.min(Math.max(n, a), b);
+const pickUploadedPath = (json) => {
+  if (Array.isArray(json?.paths) && json.paths[0]) return json.paths[0];
+  return "";
+};
+
+const parseImageList = (input) => {
+  if (!input) return [];
+  let list = input;
+  if (typeof list === "string") {
+    try {
+      list = list.trim().startsWith("[") ? JSON.parse(list) : [list];
+    } catch {
+      list = [list];
+    }
+  }
+  return (Array.isArray(list) ? list : [list]).filter(Boolean).map((x) => String(x).trim()).filter(Boolean);
+};
 
 const AdminProducts = () => {
   const screens = useBreakpoint();
   const isMd = !!screens.md;
   const token = useSelector((state) => state.auth?.token);
+  const currentUser = useSelector((state) => state.auth?.user);
+  const isSubAdmin = currentUser?.role === "subadmin";
   const navigate = useNavigate();
 
   // categories
@@ -84,6 +112,7 @@ const AdminProducts = () => {
   const [editingId, setEditingId] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [existingImages, setExistingImages] = useState([]); // ✅ State for managing existing images
+  const [removedImages, setRemovedImages] = useState([]);
   const [editForm] = Form.useForm();
 
   // view modal
@@ -184,7 +213,8 @@ const AdminProducts = () => {
     fetchProducts();
   };
 
-  const deleteProduct = async (id) => {
+  const deleteProduct = async (row) => {
+    const id = Number(row?.id);
     try {
       const res = await fetch(`${API_ADMIN_PRODUCTS}/${id}`, {
         method: "DELETE",
@@ -230,12 +260,14 @@ const AdminProducts = () => {
   const openEdit = (product) => {
     setEditingId(product.id);
     setEditingProduct(product);
+    setRemovedImages([]);
     setEditOpen(true);
   };
 
   // Populate form when modal opens
   useEffect(() => {
     if (editOpen && editingProduct) {
+      setRemovedImages([]);
       editForm.resetFields();
       editForm.setFieldsValue({
         name: editingProduct.name,
@@ -280,22 +312,28 @@ const AdminProducts = () => {
   }, [editOpen, editingProduct, editForm, token]);
 
   const saveEdit = async () => {
+    let uploadedThisAttempt = [];
     try {
       const values = await editForm.validateFields();
       setEditLoading(true);
 
       // 1. Upload new images if present (support multiple)
-      let newImageUrls = [];
+      let newImagePaths = [];
       if (values.images && values.images.length > 0) {
-        const uploadPromises = values.images.map((fileItem) => {
+        const uploadPromises = values.images.map((fileItem, idx) => {
           const fd = new FormData();
           fd.append("file", fileItem.originFileObj);
-          return fetch(UPLOAD_URL, { method: "POST", body: fd }).then((r) => r.json());
+          const uploadEndpoint = buildProductUploadUrl({
+            subCategory: values.subCategory || values.category || editingProduct?.subCategory || "uncategorized",
+            productId: editingId,
+            startCount: existingImages.length + idx,
+          });
+          return fetch(uploadEndpoint, { method: "POST", body: fd }).then((r) => r.json());
         });
 
         const responses = await Promise.all(uploadPromises);
-        // Collect all uploaded URLs
-        newImageUrls = responses.flatMap((r) => r.urls || []).filter(Boolean);
+        newImagePaths = responses.map((r) => pickUploadedPath(r)).filter(Boolean);
+        uploadedThisAttempt = [...newImagePaths];
       }
 
       // 2. Prepare payload
@@ -307,7 +345,7 @@ const AdminProducts = () => {
         category: values.category,
         subCategory: values.subCategory,
         // ✅ Merge existing (kept) images + new uploaded images
-        images: [...existingImages, ...newImageUrls],
+        images: [...existingImages, ...newImagePaths],
       };
 
 
@@ -325,8 +363,20 @@ const AdminProducts = () => {
 
       message.success("Product updated");
       setEditOpen(false);
+      setRemovedImages([]);
       fetchProducts();
     } catch (e) {
+      if (uploadedThisAttempt.length > 0) {
+        await Promise.allSettled(
+          uploadedThisAttempt.map((path) =>
+            fetch(UPLOAD_DELETE_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ path }),
+            })
+          )
+        );
+      }
 
       message.error(e.message || "Update failed");
     } finally {
@@ -416,7 +466,7 @@ const AdminProducts = () => {
           description="This action cannot be undone."
           okText="Delete"
           okButtonProps={{ danger: true }}
-          onConfirm={() => deleteProduct(r.id)}
+          onConfirm={() => deleteProduct(r)}
         >
           <Button danger size="small" type="text" icon={<DeleteOutlined />} />
         </Popconfirm>
@@ -629,7 +679,7 @@ const AdminProducts = () => {
                         description="This action cannot be undone."
                         okText="Delete"
                         okButtonProps={{ danger: true }}
-                        onConfirm={() => deleteProduct(r.id)}
+                        onConfirm={() => deleteProduct(r)}
                       >
                         <Button danger size="small" type="text" icon={<DeleteOutlined />} />
                       </Popconfirm>
@@ -713,6 +763,7 @@ const AdminProducts = () => {
         onCancel={() => {
           setEditOpen(false);
           setEditingProduct(null);
+          setRemovedImages([]);
         }}
         onOk={saveEdit}
         confirmLoading={editLoading}
@@ -728,6 +779,7 @@ const AdminProducts = () => {
             <Col span={12}>
               <Form.Item name="category" label="Category">
                 <Select
+                  disabled={isSubAdmin}
                   options={(categories || []).map((c) => ({ label: c.name, value: c.slug }))}
                   onChange={() => editForm.setFieldValue("subCategory", null)}
                 />
@@ -746,6 +798,7 @@ const AdminProducts = () => {
             <Col span={8}>
               <Form.Item name="subCategory" label="SubCategory">
                 <Select
+                  disabled={isSubAdmin}
                   options={(() => {
                     const cSlug = editForm.getFieldValue("category");
                     const cat = categories.find((c) => c.slug === cSlug);
@@ -755,6 +808,12 @@ const AdminProducts = () => {
               </Form.Item>
             </Col>
           </Row>
+
+          {isSubAdmin ? (
+            <div style={{ marginBottom: 12, fontSize: 12, color: "#8c8c8c" }}>
+              Subadmin users cannot change category or subcategory from this page.
+            </div>
+          ) : null}
 
           {/* ✅ Existing Images Management */}
           <div style={{ marginBottom: 16 }}>
@@ -777,7 +836,13 @@ const AdminProducts = () => {
                       shape="circle"
                       icon={<DeleteOutlined />}
                       style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, minWidth: 20, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}
-                      onClick={() => setExistingImages((prev) => prev.filter((_, i) => i !== idx))}
+                      onClick={() =>
+                        setExistingImages((prev) => {
+                          const removed = prev[idx];
+                          if (removed) setRemovedImages((old) => [...old, removed]);
+                          return prev.filter((_, i) => i !== idx);
+                        })
+                      }
                       title="Remove this image"
                     />
                   </div>

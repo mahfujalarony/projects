@@ -24,7 +24,8 @@ import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { normalizeImageUrl } from "../../../utils/imageUrl";
 
-const UPLOAD_ENDPOINT = `${UPLOAD_BASE_URL}/upload/image`;
+const UPLOAD_ENDPOINT = `${UPLOAD_BASE_URL}/upload/image?scope=offers`;
+const UPLOAD_DELETE_ENDPOINT = `${UPLOAD_BASE_URL}/upload/delete`;
 
 const getFullImageUrl = (imgPath) => {
   return normalizeImageUrl(imgPath) || "/placeholder-product.jpg";
@@ -46,8 +47,12 @@ const uploadImages = async (files = []) => {
     })
   );
 
-  // backend response: { urls: [...] }
-  return uploadJson.flatMap((u) => u.urls || []);
+  const pickUploadedPath = (json) => {
+    if (Array.isArray(json?.paths) && json.paths[0]) return json.paths[0];
+    return "";
+  };
+
+  return uploadJson.map((u) => pickUploadedPath(u)).filter(Boolean);
 };
 
 const AdminOffers = () => {
@@ -235,6 +240,14 @@ const AdminOffers = () => {
         return;
       }
 
+      if (editing?.imageUrl && finalImageUrl && editing.imageUrl !== finalImageUrl) {
+        await fetch(UPLOAD_DELETE_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: editing.imageUrl }),
+        }).catch(() => {});
+      }
+
       message.success(editing ? "Offer updated" : "Offer created");
       setOpen(false);
       resetModalState();
@@ -250,9 +263,9 @@ const AdminOffers = () => {
   };
 
   // ✅ Delete
-  const onDelete = async (id) => {
+  const onDelete = async (row) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/offers/admin/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/offers/admin/${row.id}`, {
         method: "DELETE",
         headers: authHeaders,
       });
@@ -261,6 +274,14 @@ const AdminOffers = () => {
       if (!res.ok || !data?.success) {
         message.error(data?.message || "Delete failed");
         return;
+      }
+
+      if (row?.imageUrl) {
+        await fetch(UPLOAD_DELETE_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: row.imageUrl }),
+        }).catch(() => {});
       }
 
       message.success("Offer deleted");
@@ -329,7 +350,7 @@ const AdminOffers = () => {
             <Button size="small" onClick={() => openEdit(row)}>
               Edit
             </Button>
-            <Popconfirm title="Delete this offer?" onConfirm={() => onDelete(row.id)}>
+            <Popconfirm title="Delete this offer?" onConfirm={() => onDelete(row)}>
               <Button danger size="small">
                 Delete
               </Button>
@@ -409,7 +430,7 @@ const AdminOffers = () => {
                 <Button size="small" onClick={() => openEdit(row)} className="flex-1">
                   Edit
                 </Button>
-                <Popconfirm title="Delete this offer?" onConfirm={() => onDelete(row.id)}>
+                <Popconfirm title="Delete this offer?" onConfirm={() => onDelete(row)}>
                   <Button danger size="small" className="flex-1">
                     Delete
                   </Button>
@@ -539,11 +560,6 @@ const AdminOffers = () => {
           </Form.Item>
         </Form>
 
-        <div className="text-xs text-gray-500 mt-2">
-          Upload server: <span className="font-mono">{UPLOAD_ENDPOINT}</span>
-          <br />
-          Offers API: <span className="font-mono">{API_BASE_URL}/api/offers/admin</span>
-        </div>
       </Modal>
     </div>
   );

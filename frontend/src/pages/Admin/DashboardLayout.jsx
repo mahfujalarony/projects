@@ -15,7 +15,6 @@ import {
   Search,
   Wallet,
   DollarSign,
-  Trash2,
   History as HistoryIcon
 } from "lucide-react";
 import { Button, Layout, Menu, theme, Drawer, Badge, Input, Grid } from "antd";
@@ -95,11 +94,6 @@ const DashboardLayout = () => {
       key: "/admin/balance-topup",
       icon: <DollarSign size={18} />,
       label: "Balance Topup",
-    },
-    {
-      key: "/admin/media-cleanup",
-      icon: <Trash2 size={18} />,
-      label: "Media Cleanup",
     },
     {
       key: "/admin/settings",

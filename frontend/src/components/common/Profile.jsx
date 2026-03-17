@@ -8,7 +8,7 @@ import { API_BASE_URL } from "../../config/env";
 import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const API_BASE = API_BASE_URL;
-const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image?scope=profiles`;
 
 const safeJson = (v, fallback = null) => {
   try {
@@ -152,8 +152,8 @@ const Profile = () => {
 
       const upRes = await fetch(UPLOAD_URL, { method: "POST", body: fd });
       const upJson = await upRes.json().catch(() => null);
-      const uploadedUrl = upJson?.urls?.[0];
-      if (!upRes.ok || !uploadedUrl) {
+      const uploadedPath = upJson?.paths?.[0];
+      if (!upRes.ok || !uploadedPath) {
         throw new Error("Image upload failed");
       }
 
@@ -164,16 +164,16 @@ const Profile = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ imageUrl: uploadedUrl }),
+        body: JSON.stringify({ imageUrl: uploadedPath }),
       });
       const saveJson = await saveRes.json().catch(() => null);
       if (!saveRes.ok || !saveJson?.success) {
         throw new Error(saveJson?.message || "Failed to save profile image");
       }
 
-      setProfile((prev) => ({ ...(prev || {}), imageUrl: uploadedUrl }));
+      setProfile((prev) => ({ ...(prev || {}), imageUrl: uploadedPath }));
 
-      const nextUser = { ...(saved?.user || {}), imageUrl: uploadedUrl };
+      const nextUser = { ...(saved?.user || {}), imageUrl: uploadedPath };
       const nextAuth = { user: nextUser, token };
       localStorage.setItem("userInfo", JSON.stringify(nextAuth));
       dispatch(setAuthState(nextAuth));

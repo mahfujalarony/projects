@@ -113,10 +113,41 @@ const Login = () => {
     setLoading(true);
 
     try {
+      const parseGooglePayload = (token) => {
+        try {
+          const parts = String(token || "").split(".");
+          if (parts.length < 2) return null;
+          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+          return JSON.parse(atob(padded));
+        } catch {
+          return null;
+        }
+      };
+
+      const uploadGooglePictureToServer = async (pictureUrl) => {
+        if (!pictureUrl) return null;
+        try {
+          const uploadRes = await fetch(`${UPLOAD_BASE_URL}/upload/image/url?scope=profiles`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: pictureUrl }),
+          });
+          const uploadJson = await uploadRes.json().catch(() => ({}));
+          if (!uploadRes.ok) return null;
+          return uploadJson?.paths?.[0] || null;
+        } catch {
+          return null;
+        }
+      };
+
+      const payload = parseGooglePayload(credential);
+      const localImageUrl = await uploadGooglePictureToServer(payload?.picture);
+
       const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential }),
+        body: JSON.stringify({ credential, imageUrl: localImageUrl }),
       });
 
       const json = await res.json();

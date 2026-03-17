@@ -40,7 +40,7 @@ const MerchantDashboardLayout = () => {
 
   const [balance, setBalance] = useState(0);
   const [balanceLoading, setBalanceLoading] = useState(true);
-  const [siteLogo, setSiteLogo] = useState("");
+  const [siteMeta, setSiteMeta] = useState({ name: "", logo: "" });
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -107,7 +107,9 @@ const MerchantDashboardLayout = () => {
         const res = await fetch(`${API_BASE}/api/settings`);
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json?.success || ignore) return;
-        setSiteLogo(resolveLogoSrc(json?.data?.siteLogoUrl));
+        const name = String(json?.data?.siteName || "").trim();
+        const logo = resolveLogoSrc(json?.data?.siteLogoUrl);
+        setSiteMeta({ name, logo });
       } catch {
         // no-op: keep fallback
       }
@@ -141,38 +143,68 @@ const MerchantDashboardLayout = () => {
     />
   );
 
-  const LogoSection = () => (
-    <div
-      style={{
-        height: 64,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        borderBottom: "1px solid #f0f0f0",
-        margin: "0 10px 10px 10px",
-        cursor: "pointer",
-      }}
-      onClick={() => navigate("/")}
-    >
-      {siteLogo ? (
-        <img src={siteLogo} alt="Logo" style={{ height: 40 }} />
-      ) : (
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            background: "#f5f5f5",
-            border: "1px solid #e5e7eb",
-            display: "grid",
-            placeItems: "center",
-            fontWeight: 700,
-            color: "#64748b",
-          }}
-        >
-          M
-        </div>
-      )}
+  const LogoSection = ({ isCollapsed = false, closeDrawer = false }) => (
+    <div style={{ padding: 12 }}>
+      <div
+        onClick={() => {
+          if (closeDrawer) setDrawerVisible(false);
+          navigate("/");
+        }}
+        style={{
+          borderRadius: 16,
+          border: "1px solid #bae6fd",
+          background: "linear-gradient(90deg, #e0f2fe 0%, #cffafe 45%, #dbeafe 100%)",
+          padding: "10px 12px",
+          boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: isCollapsed ? 0 : 10,
+          justifyContent: isCollapsed ? "center" : "flex-start",
+        }}
+      >
+        {siteMeta.logo ? (
+          <img
+            src={siteMeta.logo}
+            alt={siteMeta.name || "Shop"}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              objectFit: "cover",
+              border: "1px solid rgba(255,255,255,0.8)",
+              background: "#fff",
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.8)",
+              border: "1px solid rgba(255,255,255,0.8)",
+              display: "grid",
+              placeItems: "center",
+              fontWeight: 700,
+              color: "#0369a1",
+            }}
+          >
+            {(siteMeta.name || "M").slice(0, 1).toUpperCase()}
+          </div>
+        )}
+
+        {!isCollapsed ? (
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#0284c7", fontWeight: 600 }}>
+              Welcome
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1f2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>
+              {siteMeta.name || "Merchant"}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 
@@ -192,7 +224,7 @@ const MerchantDashboardLayout = () => {
             zIndex: 1001,
           }}
         >
-          <LogoSection />
+          <LogoSection isCollapsed={collapsed} />
           {renderMenu()}
         </Sider>
       ) : (
@@ -217,42 +249,18 @@ const MerchantDashboardLayout = () => {
           <div
             style={{
               borderRadius: 14,
-              padding: "12px 12px 10px",
+              padding: "8px 8px 10px",
               background: "linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)",
               border: "1px solid #e8eef7",
               boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
               marginBottom: 10,
             }}
           >
+            <LogoSection closeDrawer />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div
-                onClick={() => {
-                  setDrawerVisible(false);
-                  navigate("/");
-                }}
-                style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", minWidth: 0 }}
-              >
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    background: "#fff",
-                    border: "1px solid #e6edf7",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  {siteLogo ? (
-                    <img src={siteLogo} alt="Logo" style={{ height: 26 }} />
-                  ) : (
-                    <span style={{ fontWeight: 700, color: "#64748b" }}>M</span>
-                  )}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>Merchant Panel</div>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Manage store, orders and products</div>
-                </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", lineHeight: 1.1 }}>Merchant Panel</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Manage store, orders and products</div>
               </div>
 
               <Button

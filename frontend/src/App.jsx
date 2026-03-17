@@ -30,7 +30,6 @@ const History = lazy(() => import("./pages/Admin/OtherComponent/History.jsx"));
 const Wallet = lazy(() => import("./pages/Admin/OtherComponent/Wallet.jsx"));
 const BalanceTopup = lazy(() => import("./pages/Admin/OtherComponent/BalanceTopup.jsx"));
 const MobileBankingId = lazy(() => import("./pages/Admin/OtherComponent/MobileBankingId.jsx"));
-const MediaCleanup = lazy(() => import("./pages/Admin/OtherComponent/MediaCleanup.jsx"));
 const UserList = lazy(() => import("./pages/Admin/OtherComponent/UserList.jsx"));
 
 const MerchantDashboardLayout = lazy(() => import("./pages/Marchant/MarchantDashboardLayout.jsx"));
@@ -350,7 +349,6 @@ function App() {
               <Route path="wallets" element={<Wallet />} />
               <Route path="wallets/:mobileBankingId" element={<MobileBankingId />} />
               <Route path="balance-topup" element={<BalanceTopup />} />
-              <Route path="media-cleanup" element={<MediaCleanup />} />
             </Route>
           </Route>
 
@@ -367,7 +365,6 @@ function App() {
               <Route path="wallets" element={<SubAdminModuleGuard perm={SUBADMIN_PERMS.manageWallet}><Wallet /></SubAdminModuleGuard>} />
               <Route path="wallets/:mobileBankingId" element={<SubAdminModuleGuard perm={SUBADMIN_PERMS.manageWallet}><MobileBankingId /></SubAdminModuleGuard>} />
               <Route path="balance-topup" element={<SubAdminModuleGuard perm={SUBADMIN_PERMS.manageBalanceTopup}><BalanceTopup /></SubAdminModuleGuard>} />
-              <Route path="media-cleanup" element={<SubAdminModuleGuard perm={SUBADMIN_PERMS.manageMediaCleanup}><MediaCleanup /></SubAdminModuleGuard>} />
             </Route>
           </Route>
 

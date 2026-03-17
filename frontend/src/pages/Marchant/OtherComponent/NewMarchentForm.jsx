@@ -29,11 +29,21 @@ const safeJson = (s, fallback = null) => {
 };
 
 const getToken = () => safeJson(localStorage.getItem("userInfo"), null)?.token || null;
+const getUserInfo = () => safeJson(localStorage.getItem("userInfo"), null)?.user || null;
+
+const toSafeFolderName = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  return raw
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
 
 const extractUrl = (d) => {
+  if (Array.isArray(d?.paths)) return d.paths;
   const u = d?.url || d?.imageUrl;
   if (u) return [u];
-  if (Array.isArray(d?.urls)) return d.urls;
   return [];
 };
 
@@ -62,6 +72,14 @@ const MerchantRegistration = () => {
   const [settings, setSettings] = useState({ sellerCommission: null, storyPostFee: null });
 
   const token = getToken();
+  const user = getUserInfo();
+  const merchantBaseName = useMemo(() => {
+    const byName = toSafeFolderName(user?.name);
+    if (byName) return byName;
+    const byEmail = toSafeFolderName((user?.email || "").split("@")[0]);
+    if (byEmail) return byEmail;
+    return `merchant-${user?.id || "user"}`;
+  }, [user?.name, user?.email, user?.id]);
 
   const frontPreview = useMemo(() => (frontFile ? URL.createObjectURL(frontFile) : null), [frontFile]);
   const backPreview = useMemo(() => (backFile ? URL.createObjectURL(backFile) : null), [backFile]);
@@ -133,15 +151,20 @@ const MerchantRegistration = () => {
 
     try {
       // 1) Upload images to image server
-      const uploadFiles = [frontFile, backFile].map((file) => {
+      const uploadFiles = [frontFile, backFile];
+      const uploadResponses = [];
+      for (const file of uploadFiles) {
         const fd = new FormData();
         fd.append("file", file);
-        return axios.post(`${IMG_BASE}/upload/image`, fd, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-      });
-
-      const uploadResponses = await Promise.all(uploadFiles);
+        const response = await axios.post(
+          `${IMG_BASE}/upload/image?scope=merchant&name=${encodeURIComponent(merchantBaseName)}&id=${encodeURIComponent(user?.id || "")}`,
+          fd,
+          {
+            headers: { "Content-Type": "multipart/form-data" },
+          }
+        );
+        uploadResponses.push(response);
+      }
       const urls = uploadResponses.flatMap((r) => extractUrl(r.data));
 
       if (urls.length < 2) throw new Error("Failed to upload both images");

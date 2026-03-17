@@ -12,7 +12,6 @@ import {
   Wallet,
   DollarSign,
   MessageSquare,
-  Trash2,
 } from "lucide-react";
 import { Alert, Badge, Button, Drawer, Layout, Menu, theme, Grid } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -73,12 +72,6 @@ const ALL_MENU = [
     label: "Balance Topup",
     icon: <DollarSign size={18} />,
     perm: SUBADMIN_PERMS.manageBalanceTopup,
-  },
-  {
-    key: "/subadmin/media-cleanup",
-    label: "Media Cleanup",
-    icon: <Trash2 size={18} />,
-    perm: SUBADMIN_PERMS.manageMediaCleanup,
   },
   {
     key: "/chats",

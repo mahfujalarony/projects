@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Drawer, Grid, message as antdMessage } from "antd";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const BASE_URL = API_BASE_URL;
 const STATUS_FLOW = ["pending", "processing", "shipped", "delivered"];
@@ -537,7 +538,7 @@ export default function Orders() {
                   >
                     <div className="flex items-start gap-3">
                       {row.imageUrl
-                        ? <img src={row.imageUrl} alt={row.name} className="h-11 w-11 shrink-0 rounded-lg border object-cover" />
+                        ? <img src={normalizeImageUrl(row.imageUrl)} alt={row.name} className="h-11 w-11 shrink-0 rounded-lg border object-cover" />
                         : <div className="h-11 w-11 shrink-0 rounded-lg border bg-gray-50" />}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
@@ -667,7 +668,7 @@ export default function Orders() {
                             <Td>
                               <div className="flex items-center gap-3">
                                 {row.imageUrl
-                                  ? <img src={row.imageUrl} alt={row.name} className="h-9 w-9 shrink-0 rounded-lg border object-cover" />
+                                  ? <img src={normalizeImageUrl(row.imageUrl)} alt={row.name} className="h-9 w-9 shrink-0 rounded-lg border object-cover" />
                                   : <div className="h-9 w-9 shrink-0 rounded-lg border bg-gray-50" />}
                                 <div className="min-w-0">
                                   <div className="line-clamp-2 break-words font-semibold text-gray-900 max-w-[360px]">

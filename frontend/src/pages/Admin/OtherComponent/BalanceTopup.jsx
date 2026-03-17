@@ -243,7 +243,7 @@ export default function BalanceTopup() {
           const n = r.walletNumber;
           return (
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <Avatar shape="square" size={36} src={p?.imgUrl} />
+              <Avatar shape="square" size={36} src={normalizeImageUrl(p?.imgUrl)} />
               <div>
                 <div style={{ fontWeight: 700 }}>{p?.name || "-"}</div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>
@@ -464,7 +464,7 @@ export default function BalanceTopup() {
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                     <span style={{ color: "#888" }}>Method:</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <Avatar shape="square" size={16} src={r.provider?.imgUrl} />
+                      <Avatar shape="square" size={16} src={normalizeImageUrl(r.provider?.imgUrl)} />
                       <b>{r.provider?.name}</b>
                     </div>
                   </div>

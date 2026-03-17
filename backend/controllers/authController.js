@@ -8,6 +8,7 @@ const OrderItem = require('../models/Order');
 const bcrypt = require('bcryptjs');
 const { OAuth2Client } = require("google-auth-library");
 const { sendAuthSuccess, sendError } = require("../utils/authResponse");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -26,11 +27,44 @@ const normalizePhone = (value) => {
 
 const isLikelyEmail = (value) => EMAIL_REGEX.test(String(value || "").trim());
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 const normalizeGooglePhotoUrl = (value) => {
   const raw = String(value || "").trim();
   if (!/^https?:\/\//i.test(raw)) return null;
   // Request a cleaner full-size style URL when Google sends size suffix like "=s96-c".
   return raw.replace(/=s\d+-c$/i, "");
+};
+
+const normalizeStoredImagePath = (value) => {
+  if (value == null) return null;
+  let raw = String(value).trim();
+  if (!raw) return null;
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      const pathname = String(u.pathname || "").replace(/\\/g, "/");
+      if (pathname.startsWith("/public/")) {
+        raw = pathname;
+      } else {
+        return raw;
+      }
+    } catch {
+      return raw;
+    }
+  }
+
+  let normalized = raw.replace(/\\/g, "/").split("?")[0];
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {}
+  normalized = normalized.replace(/^\/+/, "");
+
+  if (normalized.startsWith("public/")) {
+    return `/${normalized}`;
+  }
+
+  return raw;
 };
 
 
@@ -73,7 +107,7 @@ exports.register = async (req, res) => {
       email: normalizedEmail,
       phone: normalizedPhone,
       password: hashed,
-      imageUrl: imageUrl || null,
+      imageUrl: normalizeStoredImagePath(imageUrl),
     });
 
     // ✅ same format
@@ -160,6 +194,8 @@ exports.googleLogin = async (req, res) => {
     let user = await User.findOne({ where: { email } });
 
     const googlePicture = normalizeGooglePhotoUrl(payload?.picture);
+    const uploadedImageUrl = normalizeStoredImagePath(req.body?.imageUrl);
+    const finalGooglePicture = uploadedImageUrl || googlePicture;
 
     if (!user) {
       const fallbackPassword = await bcrypt.hash(`google_${payload?.sub || Date.now()}`, 10);
@@ -168,10 +204,10 @@ exports.googleLogin = async (req, res) => {
         email,
         phone: null,
         password: fallbackPassword,
-        imageUrl: googlePicture,
+        imageUrl: normalizeStoredImagePath(finalGooglePicture),
       });
-    } else if (googlePicture && String(user.imageUrl || "").trim() !== googlePicture) {
-      user.imageUrl = googlePicture;
+    } else if (finalGooglePicture && String(user.imageUrl || "").trim() !== finalGooglePicture) {
+      user.imageUrl = normalizeStoredImagePath(finalGooglePicture);
       await user.save();
     }
 
@@ -192,8 +228,15 @@ exports.updateMyProfileImage = async (req, res) => {
     const user = await User.findByPk(userId);
     if (!user) return sendError(res, 404, "User not found");
 
-    user.imageUrl = imageUrl;
+    const nextImageUrl = normalizeStoredImagePath(imageUrl);
+    const previousImageUrl = String(user.imageUrl || "").trim();
+
+    user.imageUrl = nextImageUrl;
     await user.save();
+
+    if (previousImageUrl && previousImageUrl !== nextImageUrl) {
+      await deleteUploadFileIfSafe(previousImageUrl);
+    }
 
     return res.status(200).json({
       success: true,

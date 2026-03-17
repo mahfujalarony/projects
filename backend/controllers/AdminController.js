@@ -8,6 +8,32 @@ const sequelize = require('../config/db');
 const Notification = require("../models/Notification");
 const { Op, fn, col, where: W, literal } = require("sequelize");
 const { appendAdminHistory } = require("../utils/adminHistory");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
+
+const normalizeStoredImagePath = (value) => {
+  if (value == null) return "";
+  let raw = String(value).trim();
+  if (!raw) return "";
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      raw = new URL(raw).pathname || "";
+    } catch {
+      return String(value).trim();
+    }
+  }
+
+  let normalized = raw.replace(/\\/g, "/").split("?")[0];
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {}
+  normalized = normalized.replace(/^\/+/, "");
+
+  if (normalized.startsWith("public/")) {
+    return `/${normalized}`;
+  }
+  return String(value).trim();
+};
 
 // const clampInt = (v, d) => {
 //   const n = Number(v);
@@ -164,6 +190,9 @@ exports.rejectMerchant = async (req, res) => {
     }
 
     const notifyUserId = merchant.userId;
+    const cleanupTargets = [merchant.idFrontImage, merchant.idBackImage]
+      .map((p) => normalizeStoredImagePath(p))
+      .filter(Boolean);
 
     // ✅ Notification add (delete হওয়ার আগে)
     await Notification.create(
@@ -194,7 +223,18 @@ exports.rejectMerchant = async (req, res) => {
     await merchant.destroy({ transaction: t });
 
     await t.commit();
-    return res.json({ ok: true, message: "Merchant request rejected & deleted" });
+
+    const cleanupResults = await Promise.allSettled(
+      cleanupTargets.map((target) => deleteUploadFileIfSafe(target))
+    );
+    const cleanupFailed = cleanupResults.some((r) => r.status === "rejected");
+
+    return res.json({
+      ok: true,
+      message: cleanupFailed
+        ? "Merchant request rejected & deleted (some images could not be removed)"
+        : "Merchant request rejected & deleted",
+    });
   } catch (err) {
     await t.rollback();
     return res.status(500).json({ ok: false, message: err?.message || "Server error" });
@@ -642,6 +682,7 @@ exports.updateAdminProduct = async (req, res) => {
     };
 
     const { name, price, stock, category, subCategory, description, images, imageUrl, categoryId, subCategoryId } = req.body;
+    const isSubAdminActor = req.user?.role === "subadmin";
 
     if (name !== undefined) product.name = name.trim();
     if (price !== undefined) product.price = Number(price);
@@ -654,16 +695,19 @@ exports.updateAdminProduct = async (req, res) => {
       const imgs = (Array.isArray(nextImages) ? nextImages : [nextImages])
         .filter(Boolean)
         .map((x) => String(x).trim())
+        .map(normalizeStoredImagePath)
         .filter(Boolean);
       product.images = imgs;
       product.changed("images", true);
     }
 
-    // Update category/subcategory refs if provided
-    if (category !== undefined) product.category = category;
-    if (subCategory !== undefined) product.subCategory = subCategory;
-    if (categoryId !== undefined) product.categoryId = categoryId;
-    if (subCategoryId !== undefined) product.subCategoryId = subCategoryId;
+    // Subadmins can edit product content/price/stock/images, but category refs stay immutable.
+    if (!isSubAdminActor) {
+      if (category !== undefined) product.category = category;
+      if (subCategory !== undefined) product.subCategory = subCategory;
+      if (categoryId !== undefined) product.categoryId = categoryId;
+      if (subCategoryId !== undefined) product.subCategoryId = subCategoryId;
+    }
 
     await product.save();
     await appendAdminHistory(
@@ -765,7 +809,6 @@ const VALID = new Set([
   "manage_catagory",
   "manage_catagoy",
   "manage_merchant",
-  "manage_media_cleanup",
   "manage_users",
   "manage_support_chat",
   "manage_balance_topup",

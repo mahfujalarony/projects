@@ -33,6 +33,7 @@ const MAX_IMAGES = 5;
 const API_CATEGORIES = `${API_BASE_URL}/api/categories`;
 const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
 const CREATE_URL = `${API_BASE_URL}/api/products/create`;
+const ADMIN_PRODUCT_UPDATE_BASE = `${API_BASE_URL}/api/admin/products`;
 
 const escapeHtml = (value = "") =>
   String(value)
@@ -82,6 +83,15 @@ const findSubCategoryById = (nodes = [], id) => {
     if (found) return found;
   }
   return null;
+};
+
+const buildProductUploadUrl = ({ subCategory, productId, startCount }) => {
+  const params = new URLSearchParams();
+  params.set("scope", "product");
+  params.set("subcategory", String(subCategory || "uncategorized"));
+  params.set("productId", String(productId));
+  params.set("startCount", String(startCount));
+  return `${UPLOAD_URL}?${params.toString()}`;
 };
 
 /* ═══════════════════════════════════════════
@@ -343,30 +353,12 @@ const CreateItem = () => {
       if (!categoryId) throw new Error("Select a category");
       if (!images.length) throw new Error("Select at least one image");
 
-      const uploadResponses = await Promise.all(
-        images.map((file) => {
-          const fd = new FormData();
-          fd.append("file", file);
-          return fetch(UPLOAD_URL, { method: "POST", body: fd });
-        })
-      );
-
-      const uploadJson = await Promise.all(
-        uploadResponses.map(async (res) => {
-          if (!res.ok) throw new Error("Image upload failed");
-          return res.json();
-        })
-      );
-
-      const imageUrls = uploadJson.flatMap((u) => u.urls || []);
-      if (!imageUrls.length) throw new Error("No image URL returned");
-
       const baseDescription = String(data.description || "");
       const finalDescription = `${baseDescription}${
         specTableHtml ? `${baseDescription ? "<p><br></p>" : ""}${specTableHtml}` : ""
       }`;
 
-      const payload = {
+      const createPayload = {
         name: data.name.trim(),
         price: Number(data.price),
         oldPrice: data.oldPrice != null && data.oldPrice !== "" ? Number(data.oldPrice) : null,
@@ -376,20 +368,64 @@ const CreateItem = () => {
         category: selectedCategory?.slug || selectedCategory?.name || null,
         subCategory: selectedSubCategory?.slug || selectedSubCategory?.name || null,
         description: finalDescription,
-        imageUrl: imageUrls, // order will follow thumbnail order ✅
+        imageUrl: [],
       };
 
-      const response = await fetch(CREATE_URL, {
+      const createResponse = await fetch(CREATE_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(createPayload),
       });
 
-      const resJson = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(resJson.message || "Product create failed");
+      const createJson = await createResponse.json().catch(() => ({}));
+      if (!createResponse.ok) throw new Error(createJson.message || "Product create failed");
+
+      const createdProductId = Number(createJson?.product?.id);
+      if (!Number.isFinite(createdProductId) || createdProductId <= 0) {
+        throw new Error("Product created but invalid product id returned");
+      }
+
+      // Prefer backend-resolved slug so upload folder always matches saved product metadata.
+      const uploadSubCategory =
+        String(createJson?.product?.subCategory || "").trim() ||
+        selectedSubCategory?.slug ||
+        selectedSubCategory?.name ||
+        selectedCategory?.slug ||
+        "uncategorized";
+
+      const uploadJson = await Promise.all(
+        images.map(async (file, idx) => {
+          const fd = new FormData();
+          fd.append("file", file);
+          const uploadRes = await fetch(
+            buildProductUploadUrl({
+              subCategory: uploadSubCategory,
+              productId: createdProductId,
+              startCount: idx,
+            }),
+            { method: "POST", body: fd }
+          );
+          if (!uploadRes.ok) throw new Error("Image upload failed");
+          return uploadRes.json();
+        })
+      );
+
+      const imageUrls = uploadJson.flatMap((u) => u.paths || []);
+      if (!imageUrls.length) throw new Error("No image path returned");
+
+      const updateResponse = await fetch(`${ADMIN_PRODUCT_UPDATE_BASE}/${createdProductId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ images: imageUrls }),
+      });
+      const updateJson = await updateResponse.json().catch(() => ({}));
+      if (!updateResponse.ok) throw new Error(updateJson?.message || "Product image save failed");
 
       message.success("Product created successfully!");
       reset();

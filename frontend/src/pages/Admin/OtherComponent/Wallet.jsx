@@ -8,7 +8,27 @@ import { API_BASE_URL } from "../../../config/env";
 import { UPLOAD_BASE_URL } from "../../../config/env";
 
 const API_BASE = `${API_BASE_URL}/api/mobile-banking`;
-const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+const toSafeUploadName = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const buildWalletUploadUrl = ({ name, id }) => {
+  const params = new URLSearchParams();
+  params.set("scope", "wallets");
+  const safeName = toSafeUploadName(name) || "wallet";
+  params.set("name", safeName);
+  if (id) params.set("id", String(id));
+  return `${UPLOAD_BASE_URL}/upload/image?${params.toString()}`;
+};
+
+const pickUploadedPath = (json) => {
+  if (Array.isArray(json?.paths) && json.paths[0]) return json.paths[0];
+  return "";
+};
 
 export default function MobileBankingManager() {
   const { useBreakpoint } = Grid;
@@ -125,11 +145,12 @@ export default function MobileBankingManager() {
       if (fileList.length > 0) {
         const formData = new FormData();
         formData.append("file", fileList[0].originFileObj);
-        const upRes = await fetch(UPLOAD_URL, { method: "POST", body: formData });
+        const upRes = await fetch(
+          buildWalletUploadUrl({ name: values.name }),
+          { method: "POST", body: formData }
+        );
         const upJson = await upRes.json();
-        if (upJson.urls && upJson.urls.length > 0) {
-          finalImgUrl = upJson.urls[0];
-        }
+        finalImgUrl = pickUploadedPath(upJson) || finalImgUrl;
       }
 
       const payload = {
@@ -168,11 +189,12 @@ export default function MobileBankingManager() {
       if (editFileList.length > 0) {
         const formData = new FormData();
         formData.append("file", editFileList[0].originFileObj);
-        const upRes = await fetch(UPLOAD_URL, { method: "POST", body: formData });
+        const upRes = await fetch(
+          buildWalletUploadUrl({ name: values.name || editing?.name, id: editing?.id }),
+          { method: "POST", body: formData }
+        );
         const upJson = await upRes.json();
-        if (upJson.urls && upJson.urls.length > 0) {
-          finalImgUrl = upJson.urls[0];
-        }
+        finalImgUrl = pickUploadedPath(upJson) || finalImgUrl;
       }
 
       await axios.put(
@@ -397,7 +419,7 @@ export default function MobileBankingManager() {
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             {w?.imgUrl ? (
                               <img
-                                src={w.imgUrl}
+                                src={resolveImgSrc(w.imgUrl)}
                                 alt={w.name}
                                 style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 10, border: "1px solid #eee" }}
                                 onError={(e) => (e.currentTarget.style.display = "none")}
@@ -549,7 +571,7 @@ export default function MobileBankingManager() {
                             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                               {r?.imgUrl ? (
                                 <img
-                                  src={r.imgUrl}
+                                  src={resolveImgSrc(r.imgUrl)}
                                   alt={r.name}
                                   style={{ width: 34, height: 34, borderRadius: 999, objectFit: "cover", border: "1px solid #eee" }}
                                   onError={(e) => (e.currentTarget.style.display = "none")}
@@ -674,7 +696,7 @@ export default function MobileBankingManager() {
                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                             {r?.imgUrl ? (
                               <img
-                                src={r.imgUrl}
+                                src={resolveImgSrc(r.imgUrl)}
                                 alt={r.name}
                                 style={{ width: 40, height: 40, borderRadius: 999, objectFit: "cover", border: "1px solid #eee" }}
                                 onError={(e) => (e.currentTarget.style.display = "none")}

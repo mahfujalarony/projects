@@ -26,14 +26,24 @@ import {
 import { UploadOutlined } from "@ant-design/icons";
 import { API_BASE_URL } from "../../../config/env"
 import { UPLOAD_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const API = `${API_BASE_URL}/api`;
-const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+const buildUploadUrl = (providerId) => {
+  const params = new URLSearchParams();
+  params.set("scope", "wallets");
+  if (providerId) params.set("id", String(providerId));
+  return `${UPLOAD_BASE_URL}/upload/image?${params.toString()}`;
+};
 
 const safeArr = (v) => (Array.isArray(v) ? v : []);
+const pickUploadedPath = (json) => {
+  if (Array.isArray(json?.paths) && json.paths[0]) return json.paths[0];
+  return "";
+};
 
 export default function MobileBankingId() {
   const { mobileBankingId } = useParams();
@@ -53,6 +63,7 @@ export default function MobileBankingId() {
 
   // ✅ wallet logo upload states
   const [walletLogoUploading, setWalletLogoUploading] = useState(false);
+  const [walletLogoRemoving, setWalletLogoRemoving] = useState(false);
   const [walletLogoUrl, setWalletLogoUrl] = useState(""); // create form এর imgUrl
 
   // numbers modal
@@ -88,7 +99,7 @@ export default function MobileBankingId() {
 
   const renderUserOptionLabel = (u) => (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <Avatar src={u.imageUrl} size={24}>
+      <Avatar src={normalizeImageUrl(u.imageUrl)} size={24}>
         {(u.name || "U").charAt(0)}
       </Avatar>
       <div style={{ minWidth: 0, lineHeight: 1.15 }}>
@@ -165,14 +176,14 @@ export default function MobileBankingId() {
     const fd = new FormData();
     fd.append("file", file);
 
-    const res = await fetch(UPLOAD_URL, { method: "POST", body: fd });
+    const res = await fetch(buildUploadUrl(mobileBankingId), { method: "POST", body: fd });
     if (!res.ok) throw new Error("Image upload failed");
 
-    const json = await res.json(); // expected { urls: [...] }
-    const urls = safeArr(json?.urls);
-    if (!urls.length) throw new Error("Upload succeeded but no URL returned");
+    const json = await res.json();
+    const uploaded = pickUploadedPath(json);
+    if (!uploaded) throw new Error("Upload succeeded but no URL returned");
 
-    return urls[0];
+    return uploaded;
   };
 
   // ✅ AntD Upload customRequest handler
@@ -190,6 +201,27 @@ export default function MobileBankingId() {
       onError?.(err);
     } finally {
       setWalletLogoUploading(false);
+    }
+  };
+
+  const handleRemoveWalletLogo = async () => {
+    const target = String(walletLogoUrl || createWalletForm.getFieldValue("imgUrl") || "").trim();
+    setWalletLogoUploading(false);
+    setWalletLogoRemoving(true);
+    try {
+      if (target) {
+        await fetch(`${UPLOAD_BASE_URL}/upload/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: target }),
+        });
+      }
+    } catch {
+      // ignore cleanup error, still clear UI state
+    } finally {
+      setWalletLogoUrl("");
+      createWalletForm.setFieldsValue({ imgUrl: "" });
+      setWalletLogoRemoving(false);
     }
   };
 
@@ -380,7 +412,7 @@ export default function MobileBankingId() {
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               {w.imgUrl ? (
                 <img
-                  src={w.imgUrl}
+                  src={normalizeImageUrl(w.imgUrl)}
                   alt={w.name}
                   style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid #eee", objectFit: "cover" }}
                   onError={(e) => (e.currentTarget.style.display = "none")}
@@ -417,7 +449,7 @@ export default function MobileBankingId() {
               <div style={{ marginTop: 8, fontSize: 12 }}>
                 Assigned:{" "}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <Avatar src={getAssignedUserMeta(w).imageUrl} size={20}>
+                  <Avatar src={normalizeImageUrl(getAssignedUserMeta(w).imageUrl)} size={20}>
                     {String(getAssignedUserMeta(w).name || "U").charAt(0).toUpperCase()}
                   </Avatar>
                   <Button
@@ -548,7 +580,7 @@ export default function MobileBankingId() {
               <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
                 {provider.imgUrl ? (
                   <img
-                    src={provider.imgUrl}
+                    src={normalizeImageUrl(provider.imgUrl)}
                     alt="logo"
                     style={{
                       width: 52,
@@ -669,7 +701,7 @@ export default function MobileBankingId() {
 
                       {walletLogoUrl ? (
                         <img
-                          src={walletLogoUrl}
+                          src={normalizeImageUrl(walletLogoUrl)}
                           alt="wallet-logo"
                           style={{
                             width: 44,
@@ -687,10 +719,8 @@ export default function MobileBankingId() {
                       {walletLogoUrl ? (
                         <Button
                           danger
-                          onClick={() => {
-                            setWalletLogoUrl("");
-                            createWalletForm.setFieldsValue({ imgUrl: "" });
-                          }}
+                          loading={walletLogoRemoving}
+                          onClick={handleRemoveWalletLogo}
                         >
                           Remove
                         </Button>
@@ -728,7 +758,7 @@ export default function MobileBankingId() {
                       extra={
                         selectedOwnerOption ? (
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <Avatar src={selectedOwnerOption.imageUrl} size={24}>
+                            <Avatar src={normalizeImageUrl(selectedOwnerOption.imageUrl)} size={24}>
                               {(selectedOwnerOption.name || "U").charAt(0)}
                             </Avatar>
                             <span>
@@ -811,7 +841,7 @@ export default function MobileBankingId() {
                         <>
                           Assigned User:{" "}
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, verticalAlign: "middle" }}>
-                            <Avatar src={getAssignedUserMeta(activeWallet).imageUrl} size={20}>
+                            <Avatar src={normalizeImageUrl(getAssignedUserMeta(activeWallet).imageUrl)} size={20}>
                               {String(getAssignedUserMeta(activeWallet).name || "U").charAt(0).toUpperCase()}
                             </Avatar>
                             <Button

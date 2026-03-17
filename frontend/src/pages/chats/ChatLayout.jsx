@@ -32,6 +32,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { getChatSocket } from "../../realtime/chatSocket";
 import { CHAT_BASE_URL, API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 import ChatConversationList from "./components/ChatConversationList";
 
 const { Sider, Content } = Layout;
@@ -104,9 +105,8 @@ const ChatLayout = () => {
   const canBlockConversation = String(user?.role || "") === "admin";
 
   const getAvatarUrl = useCallback((url) => {
-    if (!url) return null;
-    if (url.startsWith("http")) return url;
-    return `${MAIN_API}/${url.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+    const normalized = normalizeImageUrl(url);
+    return normalized || null;
   }, []);
 
   const formatTime = (value) => {
@@ -1216,7 +1216,7 @@ const ChatLayout = () => {
                     Support Chat
                   </Title>
                   <Text type="secondary" style={{ display: "block", lineHeight: 1.6 }}>
-                    যদি আপনি কোনো সমস্যা ফেস করেন, তাহলে অ্যাডমিন/সাপোর্ট এর সাথে যোগাযোগ করতে মেসেজ করুন।
+                    If you face any issues, message the admin/support team to get help.
                   </Text>
                   <Button
                     type="primary"

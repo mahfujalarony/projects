@@ -11,6 +11,31 @@ const { appendAdminHistory } = require("../utils/adminHistory");
 const RANK_CACHE_TTL_MS = 30 * 1000;
 const rankCache = new Map();
 
+const normalizeStoredImagePath = (value) => {
+  if (value == null) return "";
+  let raw = String(value).trim();
+  if (!raw) return "";
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      raw = new URL(raw).pathname || "";
+    } catch {
+      return String(value).trim();
+    }
+  }
+
+  let normalized = raw.replace(/\\/g, "/").split("?")[0];
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {}
+  normalized = normalized.replace(/^\/+/, "");
+
+  if (normalized.startsWith("public/")) {
+    return `/${normalized}`;
+  }
+  return String(value).trim();
+};
+
 const BN_DIGIT_MAP = {
   "\u09E6": "0",
   "\u09E7": "1",
@@ -971,7 +996,9 @@ exports.createProduct = async (req, res) => {
             subCategory: resolvedSubCategory
               ? String(resolvedSubCategory.slug || resolvedSubCategory.name || "").trim()
               : null,
-            images: Array.isArray(body.imageUrl) ? body.imageUrl : [],
+            images: (Array.isArray(body.imageUrl) ? body.imageUrl : [])
+              .map(normalizeStoredImagePath)
+              .filter(Boolean),
         };
 
 

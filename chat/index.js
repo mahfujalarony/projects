@@ -41,6 +41,9 @@ const convRoom = (id) => `conv:${id}`;
 const userRoom = (id) => `user:${id}`;
 const isCoreSupportRole = (role) => ["admin", "support"].includes(role);
 const isGuestRole = (role) => role === "guest";
+const GUEST_SUPPORT_AUTO_REPLY_TEXT =
+  "We have received your message. One of our representatives will reply to you very soon. Please wait.";
+const SUPPORT_AUTO_REPLY_SENDER_ID = Number(process.env.SUPPORT_AUTO_REPLY_SENDER_ID || 999999999999);
 const parseUserIdFromRoom = (roomName) =>
   roomName.startsWith("user:") ? roomName.replace("user:", "") : null;
 const supportPermCache = new Map();
@@ -200,10 +203,41 @@ io.on("connection", (socket) => {
         deliveredAt: new Date(),
       });
 
-      await convo.update({ lastMessageAt: new Date() });
+      let latestMessageAt = new Date();
+      await convo.update({ lastMessageAt: latestMessageAt });
 
       // broadcast to room
       io.to(convRoom(convoId)).emit("new_message", { message: msg });
+
+      const isGuestSupportCustomer =
+        isGuestRole(user?.role) &&
+        !!convo.isGuestCustomer &&
+        String(convo.customerId) === String(user?.id);
+
+      if (isGuestSupportCustomer) {
+        const guestSentCount = await Message.count({
+          where: {
+            conversationId: convoId,
+            senderId: user.id,
+          },
+        });
+
+        if (guestSentCount === 1) {
+          const autoReply = await Message.create({
+            conversationId: convoId,
+            senderId: convo.agentId || SUPPORT_AUTO_REPLY_SENDER_ID,
+            type: "text",
+            body: GUEST_SUPPORT_AUTO_REPLY_TEXT,
+            mediaUrl: null,
+            meta: { autoReply: true, source: "guest-first-message" },
+            deliveredAt: new Date(),
+          });
+
+          latestMessageAt = autoReply.createdAt || new Date();
+          await convo.update({ lastMessageAt: latestMessageAt });
+          io.to(convRoom(convoId)).emit("new_message", { message: autoReply });
+        }
+      }
 
       // ping participants (if not in room)
       io.to(userRoom(String(convo.customerId))).emit("conversation_ping", { conversationId: convoId });

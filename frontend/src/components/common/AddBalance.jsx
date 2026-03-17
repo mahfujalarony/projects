@@ -20,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { getChatSocket } from "../../realtime/chatSocket";
 import { API_BASE_URL } from "../../config/env";
 import { CHAT_API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const { Title, Text } = Typography;
 const API = `${API_BASE_URL}/api`;
@@ -198,7 +199,7 @@ export default function AddBalance() {
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             {p.imgUrl ? (
               <img
-                src={p.imgUrl}
+                src={normalizeImageUrl(p.imgUrl)}
                 alt={p.name}
                 style={{ width: 18, height: 18, borderRadius: 6, objectFit: "cover" }}
                 onError={(e) => (e.currentTarget.style.display = "none")}
@@ -220,7 +221,7 @@ export default function AddBalance() {
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             {w.imgUrl ? (
               <img
-                src={w.imgUrl}
+                src={normalizeImageUrl(w.imgUrl)}
                 alt={w.name}
                 style={{ width: 18, height: 18, borderRadius: 6, objectFit: "cover" }}
                 onError={(e) => (e.currentTarget.style.display = "none")}
@@ -496,7 +497,7 @@ export default function AddBalance() {
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {selectedProvider.imgUrl ? (
                   <img
-                    src={selectedProvider.imgUrl}
+                    src={normalizeImageUrl(selectedProvider.imgUrl)}
                     alt={selectedProvider.name}
                     style={{ width: 40, height: 40, borderRadius: 12, objectFit: "cover", border: "1px solid #eee" }}
                     onError={(e) => (e.currentTarget.style.display = "none")}
@@ -520,7 +521,7 @@ export default function AddBalance() {
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {selectedWallet.imgUrl ? (
                   <img
-                    src={selectedWallet.imgUrl}
+                    src={normalizeImageUrl(selectedWallet.imgUrl)}
                     alt={selectedWallet.name}
                     style={{ width: 40, height: 40, borderRadius: 12, objectFit: "cover", border: "1px solid #eee" }}
                     onError={(e) => (e.currentTarget.style.display = "none")}

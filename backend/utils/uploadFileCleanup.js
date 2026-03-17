@@ -2,7 +2,9 @@ const fs = require("fs/promises");
 const path = require("path");
 
 const UPLOAD_PROJECT_ROOT = path.resolve(__dirname, "../../upload");
-const UPLOADS_ROOT = path.resolve(UPLOAD_PROJECT_ROOT, "uploads");
+const SAFE_UPLOAD_ROOTS = [
+  path.resolve(UPLOAD_PROJECT_ROOT, "public"),
+];
 
 const normalizeUploadRelativePath = (value) => {
   if (!value) return null;
@@ -21,8 +23,7 @@ const normalizeUploadRelativePath = (value) => {
   try {
     normalized = decodeURIComponent(normalized);
   } catch {}
-  normalized = normalized.replace(/^upload\/+/, "uploads/");
-  if (!normalized.startsWith("uploads/")) return null;
+  if (!normalized.startsWith("public/")) return null;
   return normalized;
 };
 
@@ -30,7 +31,7 @@ const resolveUploadFile = (value) => {
   const rel = normalizeUploadRelativePath(value);
   if (!rel) return null;
   const full = path.resolve(UPLOAD_PROJECT_ROOT, rel);
-  if (!full.startsWith(UPLOADS_ROOT)) return null;
+  if (!SAFE_UPLOAD_ROOTS.some((root) => full.startsWith(root))) return null;
   return { rel, full };
 };
 

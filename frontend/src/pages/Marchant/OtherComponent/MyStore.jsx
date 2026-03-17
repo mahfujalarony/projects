@@ -6,6 +6,7 @@ import { EditOutlined } from "@ant-design/icons";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import  { API_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const API_BASE = `${API_BASE_URL}`;
 
@@ -344,7 +345,7 @@ export default function MyStore() {
                 {/* Image */}
                 <div className="aspect-square w-full bg-gray-100">
                   {img ? (
-                    <img src={img} alt={p.name} className="h-full w-full object-cover" />
+                    <img src={normalizeImageUrl(img)} alt={p.name} className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs text-gray-500">
                       No Image

@@ -27,12 +27,13 @@ import {
 } from "@ant-design/icons";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const API_BASE = `${API_BASE_URL}/api`;
-const cleanImg = (url) => (url ? String(url).replace(/\\/g, "/") : null);
+const cleanImg = (url) => normalizeImageUrl(url);
 const isTopupBlocked = (u) => {
   const t = u?.topupBlockedUntil ? new Date(u.topupBlockedUntil).getTime() : 0;
   return Number.isFinite(t) && t > Date.now();

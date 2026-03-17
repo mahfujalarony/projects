@@ -22,13 +22,18 @@ import axios from "axios";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../../config/env";
 import { UPLOAD_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const { Title, Text } = Typography;
 
 const API_BASE = `${API_BASE_URL}`;
-const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image?scope=stories`;
 
 const clean = (u) => (u ? String(u).replace(/\\/g, "/") : "");
+const pickUploadedPath = (json) => {
+  if (Array.isArray(json?.paths) && json.paths[0]) return json.paths[0];
+  return "";
+};
 
 const isExpired = (expiresAt) => {
   if (!expiresAt) return false;
@@ -151,8 +156,8 @@ export default function CreateStory() {
       })
     );
 
-    const urls = uploadJson.flatMap((u) => u.urls || []);
-    return urls.map(clean);
+    const uploadedPaths = uploadJson.map((u) => pickUploadedPath(u)).filter(Boolean);
+    return uploadedPaths.map(clean);
   };
 
   const handleCreate = async () => {
@@ -366,7 +371,7 @@ export default function CreateStory() {
               dataSource={myStories}
               renderItem={(s) => {
                 const expired = isExpired(s.expiresAt);
-                const cover = Array.isArray(s.mediaUrls) ? clean(s.mediaUrls[0]) : "";
+                const cover = Array.isArray(s.mediaUrls) ? normalizeImageUrl(clean(s.mediaUrls[0])) : "";
                 return (
                   <List.Item
                     key={s.id}
@@ -414,7 +419,7 @@ export default function CreateStory() {
                           {s.mediaUrls.slice(0, 6).map((u, i) => (
                             <Image
                               key={i}
-                              src={clean(u)}
+                              src={normalizeImageUrl(clean(u))}
                               width={64}
                               height={64}
                               style={{ objectFit: "cover", borderRadius: 10 }}

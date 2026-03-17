@@ -29,6 +29,7 @@ import "uplot/dist/uPlot.min.css";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { API_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const API_BASE = `${API_BASE_URL}/api`;
 
@@ -279,7 +280,7 @@ const MerchantDashboardContent = () => {
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
             {record.imageUrl
-              ? <img src={record.imageUrl} alt="" className="w-full h-full object-cover" />
+              ? <img src={normalizeImageUrl(record.imageUrl)} alt="" className="w-full h-full object-cover" />
               : <div className="w-full h-full grid place-items-center text-slate-400 text-[10px]">No image</div>}
           </div>
           <div className="min-w-0">

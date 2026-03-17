@@ -14,6 +14,9 @@ const { appendAdminHistory } = require("../utils/adminHistory");
 
 const now = () => new Date();
 const UPLOAD_ROOT = path.resolve(__dirname, "../../upload");
+const SAFE_UPLOAD_ROOTS = [
+  path.resolve(UPLOAD_ROOT, "public"),
+];
 
 const clampInt = (v, d) => {
   const n = Number(v);
@@ -61,11 +64,14 @@ const mediaUrlToUploadFilePath = (url) => {
     .replace(/\\/g, "/")
     .replace(/^\/+/, "");
 
-  if (!normalized.toLowerCase().startsWith("uploads/")) return null;
+  if (
+    !normalized.toLowerCase().startsWith("public/")
+  ) {
+    return null;
+  }
 
   const fullPath = path.resolve(UPLOAD_ROOT, normalized);
-  const uploadsDir = path.resolve(UPLOAD_ROOT, "uploads");
-  if (!fullPath.startsWith(uploadsDir)) return null;
+  if (!SAFE_UPLOAD_ROOTS.some((root) => fullPath.startsWith(root))) return null;
   return fullPath;
 };
 

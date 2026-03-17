@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { API_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const API_BASE = `${API_BASE_URL}/api`;
 
@@ -120,7 +121,7 @@ const Product = () => {
               <div className="flex items-center justify-center overflow-hidden rounded-lg bg-slate-100">
                 {product.images?.[0] ? (
                   <img
-                    src={product.images[0]}
+                    src={normalizeImageUrl(product.images[0])}
                     alt={product.name}
                     className="h-32 w-full object-cover"
                   />

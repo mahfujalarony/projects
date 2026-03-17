@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { animateAddToCart, bumpCartBadge } from "../../utils/cartAnimation";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const ProductCard = ({ product, onAddToCart, onProductClick, imageClassName = "h-28 md:h-32" }) => {
   const [qty, setQty] = useState(1);
@@ -30,7 +31,7 @@ const ProductCard = ({ product, onAddToCart, onProductClick, imageClassName = "h
       <Link to={`/products/${product.id}`} className="block" onClick={handleOpenProduct}>
         <div className={`${imageClassName} w-full bg-gray-50 relative overflow-hidden`}>
           <img
-            src={product.images?.[0] || "https://via.placeholder.com/150"}
+            src={normalizeImageUrl(product.images?.[0]) || "https://via.placeholder.com/150"}
             alt={product.name}
             loading="lazy"
             decoding="async"
@@ -102,7 +103,7 @@ const ProductCard = ({ product, onAddToCart, onProductClick, imageClassName = "h
                 if (ok !== false) {
                   animateAddToCart({
                     sourceEl: buttonRef.current,
-                    imageUrl: product.images?.[0],
+                    imageUrl: normalizeImageUrl(product.images?.[0]),
                   });
                   bumpCartBadge();
                   setJustAdded(true);

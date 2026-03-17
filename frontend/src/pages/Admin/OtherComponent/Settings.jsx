@@ -14,9 +14,10 @@ import { UploadOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { useSelector } from "react-redux";
 import { API_BASE_URL, UPLOAD_BASE_URL } from "../../../config/env";
+import { normalizeImageUrl } from "../../../utils/imageUrl";
 
 const API_BASE = `${API_BASE_URL}/api`;
-const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image`;
+const UPLOAD_URL = `${UPLOAD_BASE_URL}/upload/image?scope=logo`;
 const MAX_SITE_NAME_LENGTH = 24;
 
 const Settings = () => {
@@ -106,9 +107,9 @@ const Settings = () => {
       const res = await fetch(UPLOAD_URL, { method: "POST", body: fd });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.message || "Logo upload failed");
-      const url = json?.urls?.[0];
-      if (!url) throw new Error("Upload succeeded but no URL returned");
-      form.setFieldValue("siteLogoUrl", url);
+      const savedPath = json?.paths?.[0] || "";
+      if (!savedPath) throw new Error("Upload succeeded but no file path returned");
+      form.setFieldValue("siteLogoUrl", savedPath);
       message.success("Logo uploaded");
       onSuccess?.(json, file);
     } catch (err) {
@@ -336,7 +337,7 @@ const Settings = () => {
             {logoUrlValue ? (
               <div className="mt-3">
                 <img
-                  src={logoUrlValue}
+                  src={normalizeImageUrl(logoUrlValue)}
                   alt="site-logo-preview"
                   className="h-12 w-12 rounded object-cover border border-gray-200"
                 />

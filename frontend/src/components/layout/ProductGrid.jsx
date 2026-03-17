@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { InputNumber } from 'antd';
+import { normalizeImageUrl } from '../../utils/imageUrl';
 
 const ProductGrid = ({ 
   products = [], 
@@ -30,7 +31,7 @@ const ProductGrid = ({
             {/* Image Area */}
             <div className="h-28 md:h-32 w-full bg-gray-50 relative overflow-hidden">
               <img
-                src={product.imageUrl?.[0] || 'https://via.placeholder.com/150'} // Fallback image check
+                src={normalizeImageUrl(product.images?.[0] || product.imageUrl?.[0]) || 'https://via.placeholder.com/150'} // Fallback image check
                 alt={product.name}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
               />

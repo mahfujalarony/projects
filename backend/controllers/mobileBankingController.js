@@ -1,6 +1,7 @@
 // controllers/mobileBankingController.js
 const MobileBanking = require("../models/MobileBanking");
 const { appendAdminHistory } = require("../utils/adminHistory");
+const { deleteUploadFileIfSafe } = require("../utils/uploadFileCleanup");
 
 const isNonEmpty = (v) => typeof v === "string" && v.trim().length > 0;
 const asPositiveNumber = (v) => {
@@ -167,9 +168,11 @@ exports.deleteMobileBanking = async (req, res) => {
       name: row.name,
       dollarRate: Number(row.dollarRate || 0),
       isActive: row.isActive,
+      imgUrl: row.imgUrl || null,
     };
 
     await row.destroy();
+    await deleteUploadFileIfSafe(snapshot.imgUrl);
     await appendAdminHistory(
       `Mobile banking deleted. #${snapshot.mobileBankingId} (${snapshot.name}) by admin #${actorId || "unknown"}.`,
       {

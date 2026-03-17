@@ -27,7 +27,6 @@ const PERMISSIONS_OPTIONS = [
   { label: "Manage Offers", value: "manage_offer" },
   { label: "Manage Categories", value: "manage_catagory" },
   { label: "Manage Merchant Requests", value: "manage_merchant" },
-  { label: "Manage Media Cleanup", value: "manage_media_cleanup" },
   { label: "Manage Support Chats", value: "manage_support_chat" },
   { label: "Manage Users", value: "manage_users" },
   { label: "Manage Balance Topup", value: "manage_balance_topup" },

@@ -1,6 +1,24 @@
 const fs = require("fs");
 const path = require("path");
 
+const sanitizeFileStem = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop()
+    .replace(/[^\w.-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+};
+
+const extensionFromMime = (mime = "") => {
+  const clean = String(mime || "").trim().toLowerCase();
+  if (clean === "image/jpeg") return "jpg";
+  const part = clean.split("/")[1] || "";
+  return part.replace(/[^\w]/g, "") || "bin";
+};
+
 function parseMultipart(req, options) {
   return new Promise((resolve, reject) => {
 
@@ -31,7 +49,7 @@ function parseMultipart(req, options) {
         const filename =
           Date.now() + "-" + Math.random().toString(36).slice(2);
 
-        const extension = mime.split("/")[1];
+        const extension = extensionFromMime(mime);
 
         // header আর body আলাদা করা - \r\n\r\n দিয়ে
         const headerEnd = part.indexOf("\r\n\r\n");
@@ -48,11 +66,44 @@ function parseMultipart(req, options) {
 
         fs.mkdirSync(absoluteDir, { recursive: true });
 
-        const fileName = `${filename}.${extension}`;
-        const savePath = path.join(absoluteDir, fileName);
-        fs.writeFileSync(savePath, Buffer.from(fileData, "binary"));
+        const generatedBaseName =
+          typeof options.filenameFactory === "function"
+            ? options.filenameFactory({
+                index: files.length,
+                mime,
+                ext: extension,
+                defaultName: filename,
+              })
+            : filename;
+        const safeBaseName = sanitizeFileStem(generatedBaseName) || filename;
+        const fileBuffer = Buffer.from(fileData, "binary");
+        let savedFileName = "";
+        let attempt = 0;
 
-        files.push(path.posix.join(relativeDir, fileName));
+        while (attempt < 100) {
+          const candidateBase = attempt === 0 ? safeBaseName : `${safeBaseName}_${attempt}`;
+          const fileName = candidateBase.endsWith(`.${extension}`)
+            ? candidateBase
+            : `${candidateBase}.${extension}`;
+          const savePath = path.join(absoluteDir, fileName);
+          try {
+            fs.writeFileSync(savePath, fileBuffer, { flag: "wx" });
+            savedFileName = fileName;
+            break;
+          } catch (e) {
+            if (e && e.code === "EEXIST") {
+              attempt += 1;
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        if (!savedFileName) {
+          throw new Error("Failed to allocate unique filename");
+        }
+
+        files.push(path.posix.join(relativeDir, savedFileName));
       });
 
       resolve(files);

@@ -13,6 +13,7 @@ import {
   message,
 } from "antd";
 import { MessageOutlined, ShopOutlined, StarFilled, CheckCircleFilled } from "@ant-design/icons";
+import { ImageOff, Store } from "lucide-react";
 import ProductReviews from "../../../components/common/ProductReviews.jsx"; 
 import { useDispatch, useSelector } from "react-redux";
 import { addToCart, updateQty } from "./../../../redux/cartSlice.js";
@@ -43,6 +44,9 @@ const ProductDetailsById = () => {
   const [addCooldown, setAddCooldown] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [mainImageBroken, setMainImageBroken] = useState(false);
+  const [merchantImageBroken, setMerchantImageBroken] = useState(false);
+  const [thumbBrokenMap, setThumbBrokenMap] = useState({});
 
   const cartItem = useMemo(
     () => cartItems.find((item) => String(item.id) === String(id)),
@@ -91,6 +95,12 @@ const ProductDetailsById = () => {
   }, [id]);
 
   useEffect(() => {
+    setMainImageBroken(false);
+    setMerchantImageBroken(false);
+    setThumbBrokenMap({});
+  }, [id, product?.id]);
+
+  useEffect(() => {
     let ignore = false;
 
     const fetchRelated = async () => {
@@ -124,6 +134,8 @@ const ProductDetailsById = () => {
 
   const images = Array.isArray(product?.images) ? product.images : [];
   const mainImg = activeImg || images[0] || null;
+  const mainImgSrc = cleanImage(mainImg);
+  const merchantImage = cleanImage(product?.merchant?.logo || product?.merchant?.imageUrl);
   const previewItems = useMemo(() => {
     const cleaned = images.map((src) => cleanImage(src)).filter(Boolean);
     if (cleaned.length) return cleaned;
@@ -313,7 +325,7 @@ const ProductDetailsById = () => {
                   </span>
                 </div>
               )}
-              {previewItems.length > 0 ? (
+              {previewItems.length > 0 && mainImgSrc && !mainImageBroken ? (
                 <Image.PreviewGroup
                   items={previewItems}
                   preview={{
@@ -324,7 +336,7 @@ const ProductDetailsById = () => {
                   }}
                 >
                   <Image
-                    src={cleanImage(mainImg)}
+                    src={mainImgSrc}
                     alt={product.name}
                     width="100%"
                     style={{
@@ -337,28 +349,32 @@ const ProductDetailsById = () => {
                     }}
                     onClick={() => {
                       const idx = previewItems.findIndex(
-                        (x) => x === cleanImage(mainImg)
+                        (x) => x === mainImgSrc
                       );
                       setPreviewIndex(idx >= 0 ? idx : 0);
                       setPreviewOpen(true);
                     }}
+                    onError={() => setMainImageBroken(true)}
                     fallback={null}
                   />
                 </Image.PreviewGroup>
               ) : (
-                <Image
-                  src={cleanImage(mainImg)}
-                  alt={product.name}
-                  width="100%"
+                <div
                   style={{
                     width: "100%",
                     maxWidth: 420,
                     aspectRatio: "1 / 1",
-                    objectFit: "cover",
                     borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "#f8fafc",
+                    color: "#94a3b8",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
-                  fallback={null}
-                />
+                >
+                  <ImageOff size={36} />
+                </div>
               )}
             </div>
 
@@ -376,27 +392,55 @@ const ProductDetailsById = () => {
               {images.map((src, idx) => {
                 const clean = cleanImage(src);
                 const isActive = String(src) === String(mainImg);
+                const isBroken = !!thumbBrokenMap[idx];
                 return (
-                  <Image
-                    key={idx}
-                    src={clean}
-                    preview={false}
-                    alt={`${product.name} ${idx + 1}`}
-                    width={64}
-                    height={64}
-                    style={{
-                      objectFit: "cover",
-                      borderRadius: 8,
-                      border: isActive ? "2px solid #f97316" : "1px solid #eee",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => {
-                      setActiveImg(src);
-                      const index = previewItems.findIndex((x) => x === clean);
-                      if (index >= 0) setPreviewIndex(index);
-                    }}
-                    fallback={null}
-                  />
+                  clean && !isBroken ? (
+                    <Image
+                      key={idx}
+                      src={clean}
+                      preview={false}
+                      alt={`${product.name} ${idx + 1}`}
+                      width={64}
+                      height={64}
+                      style={{
+                        objectFit: "cover",
+                        borderRadius: 8,
+                        border: isActive ? "2px solid #f97316" : "1px solid #eee",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => {
+                        setActiveImg(src);
+                        const index = previewItems.findIndex((x) => x === clean);
+                        if (index >= 0) setPreviewIndex(index);
+                      }}
+                      onError={() =>
+                        setThumbBrokenMap((prev) => ({
+                          ...prev,
+                          [idx]: true,
+                        }))
+                      }
+                      fallback={null}
+                    />
+                  ) : (
+                    <div
+                      key={idx}
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 8,
+                        border: isActive ? "2px solid #f97316" : "1px solid #eee",
+                        background: "#f8fafc",
+                        color: "#94a3b8",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => setActiveImg(src)}
+                    >
+                      <ImageOff size={18} />
+                    </div>
+                  )
                 );
               })}
             </div>
@@ -553,18 +597,19 @@ const ProductDetailsById = () => {
           {product.merchant ? (
             <div className="flex items-start gap-4">
               <div className="relative shrink-0 cursor-pointer" onClick={goToMerchant}>
-                {product.merchant.logo || product.merchant.imageUrl ? (
+                {merchantImage && !merchantImageBroken ? (
                   <Image
-                    src={cleanImage(product.merchant.logo || product.merchant.imageUrl)}
+                    src={merchantImage}
                     alt={product.merchant.name}
                     width={64}
                     height={64}
                     className="rounded-full border border-slate-100 object-cover"
                     preview={false}
+                    onError={() => setMerchantImageBroken(true)}
                   />
                 ) : (
                   <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-50 text-slate-400 border border-slate-100">
-                    <ShopOutlined style={{ fontSize: 24 }} />
+                    <Store size={24} />
                   </div>
                 )}
                 <div className="absolute -bottom-0.5 -right-0.5 rounded-full bg-blue-500 p-1 text-white shadow-sm border-2 border-white flex items-center justify-center">
@@ -629,43 +674,12 @@ const ProductDetailsById = () => {
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {relatedProducts.map((rp) => (
-                <button
+                <RelatedProductCard
                   key={rp.id}
-                  type="button"
-                  onClick={() => navigate(`/products/${rp.id}`)}
-                  className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left transition hover:shadow-md"
-                >
-                  <div className="aspect-square w-full bg-gray-50">
-                    <img
-                      src={cleanImage(rp.images?.[0])}
-                      alt={rp.name}
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                  <div className="p-3">
-                    <div className="mb-1 line-clamp-2 min-h-[2.5rem] text-sm font-medium text-gray-800">
-                      {rp.name}
-                    </div>
-                    <div className="mb-2 flex flex-wrap gap-1">
-                      {rp.category ? <Tag className="m-0">{rp.category}</Tag> : null}
-                      {rp.subCategory ? (
-                        <Tag color="blue" className="m-0">
-                          {rp.subCategory}
-                        </Tag>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-orange-600">
-                        ${Number(rp.price || 0).toFixed(2)}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {Number(rp.averageRating || 0) > 0
-                          ? `${Number(rp.averageRating).toFixed(1)}★`
-                          : "New"}
-                      </span>
-                    </div>
-                  </div>
-                </button>
+                  rp={rp}
+                  onOpen={() => navigate(`/products/${rp.id}`)}
+                  cleanImage={cleanImage}
+                />
               ))}
             </div>
           )}
@@ -688,5 +702,55 @@ const ProductDetailsById = () => {
     </div>
   );
 };
+
+function RelatedProductCard({ rp, onOpen, cleanImage }) {
+  const [broken, setBroken] = useState(false);
+  const src = cleanImage(rp.images?.[0]);
+  const canShowImage = src && !broken;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left transition hover:shadow-md"
+    >
+      <div className="aspect-square w-full bg-gray-50">
+        {canShowImage ? (
+          <img
+            src={src}
+            alt={rp.name}
+            className="h-full w-full object-cover"
+            onError={() => setBroken(true)}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-slate-400">
+            <ImageOff size={26} />
+          </div>
+        )}
+      </div>
+      <div className="p-3">
+        <div className="mb-1 line-clamp-2 min-h-[2.5rem] text-sm font-medium text-gray-800">
+          {rp.name}
+        </div>
+        <div className="mb-2 flex flex-wrap gap-1">
+          {rp.category ? <Tag className="m-0">{rp.category}</Tag> : null}
+          {rp.subCategory ? (
+            <Tag color="blue" className="m-0">
+              {rp.subCategory}
+            </Tag>
+          ) : null}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-orange-600">
+            ${Number(rp.price || 0).toFixed(2)}
+          </span>
+          <span className="text-xs text-gray-500">
+            {Number(rp.averageRating || 0) > 0 ? `${Number(rp.averageRating).toFixed(1)}★` : "New"}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
 
 export default ProductDetailsById;

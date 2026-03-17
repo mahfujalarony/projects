@@ -66,7 +66,7 @@ const Register = () => {
     String(confirmPassword || "").length > 0 && String(password || "") !== String(confirmPassword || "");
 
   const uploadImageToServer = async (file) => {
-    const imageserverUrl = `${UPLOAD_BASE_URL}/upload/image`;
+    const imageserverUrl = `${UPLOAD_BASE_URL}/upload/image?scope=profiles`;
     const fd = new FormData();
     fd.append("file", file);
 
@@ -75,10 +75,38 @@ const Register = () => {
 
     if (!res.ok) throw new Error(data?.message || "Image upload failed");
 
-    const url = data?.urls?.[0] || data?.url;
-    if (!url) throw new Error("Image server did not return url");
+    const savedPath = data?.paths?.[0] || data?.path;
+    if (!savedPath) throw new Error("Image server did not return path");
 
-    return url;
+    return savedPath;
+  };
+
+  const parseGooglePayload = (credential) => {
+    try {
+      const parts = String(credential || "").split(".");
+      if (parts.length < 2) return null;
+      const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+      return JSON.parse(atob(padded));
+    } catch {
+      return null;
+    }
+  };
+
+  const uploadGooglePictureToServer = async (pictureUrl) => {
+    if (!pictureUrl) return null;
+    try {
+      const res = await fetch(`${UPLOAD_BASE_URL}/upload/image/url?scope=profiles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: pictureUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return null;
+      return data?.paths?.[0] || null;
+    } catch {
+      return null;
+    }
   };
 
   const handleRegister = async (e) => {
@@ -162,10 +190,13 @@ const Register = () => {
     setLoading(true);
 
     try {
+      const payload = parseGooglePayload(credential);
+      const localImageUrl = await uploadGooglePictureToServer(payload?.picture);
+
       const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential }),
+        body: JSON.stringify({ credential, imageUrl: localImageUrl }),
       });
 
       const json = await res.json();

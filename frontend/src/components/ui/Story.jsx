@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import StoryViewer from "./StoryViewer";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const clean = (u) => (u ? String(u).replace(/\\/g, "/") : "");
 const isVisible = (s) => {
@@ -29,7 +30,9 @@ export default function Story({ stories = [], loading = false }) {
           rawMedia = [];
         }
       }
-      const media = Array.isArray(rawMedia) ? rawMedia.map(clean).filter(Boolean) : [];
+      const media = Array.isArray(rawMedia)
+        ? rawMedia.map((u) => normalizeImageUrl(clean(u))).filter(Boolean)
+        : [];
       const cover = media[0] || "";
 
       return {
@@ -42,8 +45,8 @@ export default function Story({ stories = [], loading = false }) {
 
         merchantId: merchant?.id || null,
         merchantName: user?.name || "Seller",
-        merchantAvatar: clean(user?.imageUrl) || "",
-        cover: cover || clean(user?.imageUrl) || "/placeholder-product.jpg",
+        merchantAvatar: normalizeImageUrl(clean(user?.imageUrl)) || "",
+        cover: cover || normalizeImageUrl(clean(user?.imageUrl)) || "/placeholder-product.jpg",
       };
     });
   }, [stories]);

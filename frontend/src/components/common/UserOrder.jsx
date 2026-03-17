@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { CheckCircleFilled } from "@ant-design/icons";
 import { Popconfirm } from "antd";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const API_URL = API_BASE_URL;
 
@@ -249,7 +250,7 @@ const getToken = () => {
             <div className="mt-2 flex items-center gap-3 rounded-lg border bg-gray-50 p-2">
               {r.imageUrl ? (
                 <img
-                  src={r.imageUrl}
+                  src={normalizeImageUrl(r.imageUrl)}
                   alt={r.name}
                   className="h-14 w-14 rounded-md border object-cover"
                 />

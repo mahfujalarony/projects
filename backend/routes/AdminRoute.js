@@ -22,10 +22,6 @@ const {
   getSettings,
   updateSettings,
 } = require("../controllers/settingController");
-const {
-  getOrphanImages,
-  deleteOrphanImages,
-} = require("../controllers/adminMediaCleanupController");
 const { getHistory } = require("../controllers/adminHistoryController");
 
 // admin only
@@ -58,8 +54,6 @@ router.put("/subadmins/:id/permissions", protect, adminOnly, setSubAdminPermissi
 //  Settings Routes (GET public for checkout, PUT admin only)
 router.get("/settings", protect, requireAdminOrSubAdminPermission(), getSettings);
 router.put("/settings", protect, requireAdminOrSubAdminPermission(), updateSettings);
-router.get("/media/orphans", protect, requireAdminOrSubAdminPermission("manage_media_cleanup"), getOrphanImages);
-router.delete("/media/orphans", protect, requireAdminOrSubAdminPermission("manage_media_cleanup"), deleteOrphanImages);
 router.get("/history", protect, requireAdminOrSubAdminPermission(), getHistory);
 
 module.exports = router;

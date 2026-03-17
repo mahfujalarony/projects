@@ -8,6 +8,5 @@ export const SUBADMIN_PERMS = {
   manageBalanceTopup: "manage_balance_topup",
   manageWallet: "manage_wallet",
   manageSupportChat: "manage_support_chat",
-  manageMediaCleanup: "manage_media_cleanup",
 };
 

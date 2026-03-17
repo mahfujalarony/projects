@@ -9,6 +9,7 @@ import {
 } from "@ant-design/icons";
 import { removeFromCart, updateQty, clearCart } from "../../redux/cartSlice";
 import { useNavigate } from "react-router-dom";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const CartButton = () => {
   const [open, setOpen] = useState(false);
@@ -157,7 +158,7 @@ const CartButton = () => {
                   }}
                 >
                   <img
-                    src={item.imageUrl}
+                    src={normalizeImageUrl(item.imageUrl)}
                     alt={item.name}
                     style={{
                       width: 60,

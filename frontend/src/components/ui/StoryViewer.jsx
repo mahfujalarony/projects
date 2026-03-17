@@ -3,6 +3,7 @@ import { Modal, Grid } from "antd";
 import { useNavigate } from "react-router-dom";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { API_BASE_URL } from "../../config/env";
+import { normalizeImageUrl } from "../../utils/imageUrl";
 
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
@@ -253,7 +254,7 @@ export default function StoryViewer({
                 <div className="w-9 h-9 rounded-full overflow-hidden border border-white/20">
                   {activeStory?.merchantAvatar ? (
                     <img
-                      src={activeStory.merchantAvatar}
+                      src={normalizeImageUrl(activeStory.merchantAvatar)}
                       alt={activeStory.merchantName}
                       loading="lazy"
                       decoding="async"
@@ -313,7 +314,7 @@ export default function StoryViewer({
             }}
           >
             {activeSlide ? (
-              <img src={activeSlide} alt="story" className="w-full h-full object-cover" draggable={false} />
+              <img src={normalizeImageUrl(activeSlide)} alt="story" className="w-full h-full object-cover" draggable={false} />
             ) : (
               <div className="w-full h-full grid place-items-center text-white/50">
                 <span className="text-xs">No media</span>

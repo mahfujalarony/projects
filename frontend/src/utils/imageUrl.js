@@ -10,7 +10,7 @@ export const normalizeImageUrl = (input) => {
     return url;
   }
 
-  if (url.startsWith("/uploads") || url.startsWith("uploads/")) {
+  if (url.startsWith("/public") || url.startsWith("public/")) {
     const normalizedPath = url.startsWith("/") ? url : `/${url}`;
     return `${UPLOAD_BASE_URL}${normalizedPath}`;
   }
